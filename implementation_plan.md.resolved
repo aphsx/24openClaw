@@ -1,0 +1,1657 @@
+# 🚀 Complete AI Trading Bot System - Implementation Plan
+
+## Overview
+
+ระบบ Trading Bot ที่ใช้ **OpenClaw + AI Pattern** แบบครบวงจร โดย:
+- **Bot (Data Layer)**: ดึงข้อมูลทุก 5 นาที
+- **AI (Brain Layer)**: วิเคราะห์และตัดสินใจ  
+- **Executor (Trade Layer)**: ส่ง Order ไป Binance
+- **Database (Supabase)**: เก็บทุกข้อมูลไว้ debug
+
+> [!IMPORTANT]
+> **System Requirements**: VPS RAM 8GB, CPU 2 cores, Ubuntu 22.04
+
+---
+
+## 📁 Project Structure (New)
+
+```
+jarvis_v5/
+├── 📂 src/
+│   ├── 📂 collectors/          # BOT LAYER - ดึงข้อมูล
+│   │   ├── binance_collector.py       # ราคา + Indicators จาก Binance
+│   │   ├── news_collector.py          # ข่าวจาก CoinDesk, Cointelegraph
+│   │   ├── twitter_collector.py       # Twitter/X sentiment
+│   │   └── onchain_collector.py       # Whale, Exchange flows
+│   │
+│   ├── 📂 processors/          # TRANSFORM LAYER - แปลงข้อมูล
+│   │   ├── technical_processor.py     # คำนวณ EMA, RSI, MACD
+│   │   ├── sentiment_processor.py     # AI วิเคราะห์ข่าว → score
+│   │   └── aggregator.py              # รวมข้อมูลทั้งหมด
+│   │
+│   ├── 📂 brain/               # AI LAYER - ตัดสินใจ
+│   │   ├── ai_brain.py                # Main AI Decision Engine
+│   │   ├── position_analyzer.py       # วิเคราะห์ Position ปัจจุบัน
+│   │   └── prompts/
+│   │       ├── entry_prompt.txt       # Prompt สำหรับหาจังหวะเข้า
+│   │       └── exit_prompt.txt        # Prompt สำหรับตัดสินใจออก
+│   │
+│   ├── 📂 executor/            # TRADE LAYER - ส่ง Order
+│   │   ├── binance_trader.py          # Open/Close Position
+│   │   └── order_validator.py         # Validate ก่อนส่ง
+│   │
+│   ├── 📂 database/            # DATA LAYER - เก็บข้อมูล
+│   │   ├── supabase_client.py         # Supabase connection
+│   │   └── models.py                  # Table schemas
+│   │
+│   └── 📂 utils/               # UTILITIES
+│       ├── telegram_notifier.py       # ส่ง Notification
+│       ├── logger.py                  # Logging
+│       └── config.py                  # Configuration
+│
+├── 📂 data/                    # TEMP DATA (ระหว่าง cycle)
+│   ├── raw/                           # ข้อมูลดิบ
+│   └── processed/                     # ข้อมูลแปลงแล้ว
+│
+├── 📂 logs/                    # LOG FILES
+├── 📂 tests/                   # TEST CASES
+├── main.py                     # Entry point
+├── requirements.txt            # Python dependencies
+├── package.json                # Node.js dependencies (for Playwright)
+├── ecosystem.config.js         # PM2 config
+├── .env                        # Environment variables
+└── README.md
+```
+
+---
+
+## 🔧 Step 1: VPS Setup & Dependencies
+
+### 1.1 System Update
+
+```bash
+# SSH เข้า VPS
+ssh user@your-vps-ip
+
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install essential tools
+sudo apt install -y build-essential git curl wget htop
+```
+
+### 1.2 Python Environment
+
+```bash
+# Install Python 3.11
+sudo apt install -y python3.11 python3.11-venv python3-pip
+
+# Create project directory
+mkdir -p ~/jarvis_v5 && cd ~/jarvis_v5
+
+# Create virtual environment
+python3.11 -m venv venv
+source venv/bin/activate
+
+# Install Python packages
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 1.3 Node.js (for Playwright Stealth)
+
+```bash
+# Install Node.js 20 LTS
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+
+# Install PM2 globally
+sudo npm install -g pm2
+
+# Install project dependencies
+npm install
+```
+
+### 1.4 Playwright Setup (Stealth Scraping)
+
+```bash
+# Install Playwright browsers
+npx playwright install chromium
+npx playwright install-deps chromium
+```
+
+---
+
+## 📦 Step 2: Dependencies Files
+
+### requirements.txt
+
+```
+# === DATA COLLECTION ===
+python-binance==1.0.19          # Binance API
+ccxt==4.2.92                    # Exchange unified API
+requests==2.31.0                # HTTP requests
+aiohttp==3.9.3                  # Async HTTP
+feedparser==6.0.11              # RSS feeds
+tweepy==4.14.0                  # Twitter API
+
+# === DATA PROCESSING ===
+pandas==2.2.0                   # Data manipulation
+numpy==1.26.4                   # Numerical computing
+ta==0.11.0                      # Technical indicators
+pandas-ta==0.3.14b0             # More indicators
+
+# === AI/ML ===
+openai==1.12.0                  # OpenAI API (GPT)
+anthropic==0.18.1               # Anthropic API (Claude)
+langchain==0.1.9                # LLM framework
+tiktoken==0.6.0                 # Token counting
+
+# === SCRAPING ===
+playwright==1.41.2              # Browser automation
+playwright-stealth==1.0.6       # Anti-detection
+beautifulsoup4==4.12.3          # HTML parsing
+lxml==5.1.0                     # Fast XML/HTML
+
+# === DATABASE ===
+supabase==2.3.4                 # Supabase client
+
+# === UTILITIES ===
+python-dotenv==1.0.1            # Environment variables
+python-telegram-bot==21.0.1     # Telegram notifications
+schedule==1.2.1                 # Task scheduling
+loguru==0.7.2                   # Better logging
+pydantic==2.6.1                 # Data validation
+```
+
+### package.json
+
+```json
+{
+  "name": "jarvis-v5",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "pm2 start ecosystem.config.js",
+    "stop": "pm2 stop all",
+    "logs": "pm2 logs"
+  },
+  "dependencies": {
+    "playwright": "^1.41.2",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  }
+}
+```
+
+---
+
+## 🔄 Step 3: Data Flow & Formats
+
+### 3.1 Overall Flow
+
+```mermaid
+flowchart TD
+    subgraph CYCLE["⏱️ Every 5 Minutes Cycle"]
+        A[Start Cycle] --> B[Generate cycle_id]
+        
+        subgraph COLLECT["📥 Phase 1: Data Collection (BOT)"]
+            B --> C1[Binance API<br/>Price + OHLCV]
+            B --> C2[News RSS<br/>Headlines]
+            B --> C3[Twitter API<br/>Mentions]
+            B --> C4[On-chain APIs<br/>Whale Activity]
+        end
+        
+        C1 --> D[raw_binance.json]
+        C2 --> E[raw_news.json]
+        C3 --> F[raw_twitter.json]
+        C4 --> G[raw_onchain.json]
+        
+        subgraph PROCESS["⚙️ Phase 2: Processing"]
+            D --> H[Technical Processor<br/>EMA, RSI, MACD]
+            E --> I[Sentiment AI<br/>News → Score]
+            F --> I
+            G --> J[On-chain Processor<br/>Whale Signal]
+        end
+        
+        H --> K[processed_technical.json]
+        I --> L[processed_sentiment.json]
+        J --> M[processed_onchain.json]
+        
+        subgraph AGGREGATE["📊 Phase 3: Aggregation"]
+            K --> N[Aggregator]
+            L --> N
+            M --> N
+            N --> O[aggregated_data.json]
+        end
+        
+        subgraph BRAIN["🧠 Phase 4: AI Decision"]
+            O --> P[AI Brain<br/>OpenAI/Claude]
+            P --> Q{Decision?}
+            Q -->|OPEN| R[Open Order]
+            Q -->|CLOSE| S[Close Order]
+            Q -->|HOLD| T[No Action]
+        end
+        
+        subgraph SAVE["💾 Phase 5: Save to DB"]
+            R --> U[Save All Data<br/>to Supabase]
+            S --> U
+            T --> U
+        end
+        
+        U --> V[Send Telegram]
+        V --> W[End Cycle]
+    end
+```
+
+---
+
+### 3.2 Raw Data Formats (จาก Collectors)
+
+#### raw_binance.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:00.000Z",
+  "source": "binance_collector",
+  "coins": [
+    {
+      "symbol": "BTCUSDT",
+      "price": 70870.10,
+      "ohlcv_5m": {
+        "open": 70850.00,
+        "high": 70920.00,
+        "low": 70800.00,
+        "close": 70870.10,
+        "volume": 1250.45
+      },
+      "ohlcv_1h": [
+        {"t": "2026-02-09T23:00:00Z", "o": 70750, "h": 70950, "l": 70700, "c": 70850, "v": 3500}
+      ],
+      "order_book": {
+        "bid": 70869.50,
+        "ask": 70870.50,
+        "spread": 1.00
+      },
+      "volume_24h": 45000.00,
+      "price_change_24h": 0.25
+    }
+  ]
+}
+```
+
+#### raw_news.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:05.000Z",
+  "source": "news_collector",
+  "articles": [
+    {
+      "id": "news_001",
+      "title": "Bitcoin ETF approval expected this week",
+      "source": "CoinDesk",
+      "url": "https://coindesk.com/...",
+      "published_at": "2026-02-09T22:30:00Z",
+      "summary": "SEC officials hint at possible approval...",
+      "raw_content": "Full article text here..."
+    }
+  ],
+  "collection_time_ms": 2340
+}
+```
+
+#### raw_twitter.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:08.000Z",
+  "source": "twitter_collector",
+  "tweets": [
+    {
+      "id": "tweet_123456",
+      "author": "@whale_alert",
+      "followers": 1500000,
+      "text": "🚨 5,000 #BTC transferred from unknown wallet to Binance",
+      "created_at": "2026-02-09T23:50:00Z",
+      "metrics": {
+        "likes": 500,
+        "retweets": 150,
+        "replies": 45
+      }
+    }
+  ],
+  "keywords_tracked": ["bitcoin", "btc", "crypto", "binance"]
+}
+```
+
+#### raw_onchain.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:12.000Z",
+  "source": "onchain_collector",
+  "metrics": {
+    "BTC": {
+      "exchange_netflow_24h": -1697,
+      "whale_transactions": [
+        {
+          "hash": "0x...",
+          "amount": 500,
+          "from": "unknown",
+          "to": "binance_cold",
+          "timestamp": "2026-02-09T23:45:00Z"
+        }
+      ],
+      "active_addresses_24h": 850000,
+      "fear_greed_index": 65
+    }
+  }
+}
+```
+
+---
+
+### 3.3 Processed Data Formats (หลัง Processors)
+
+#### processed_technical.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:20.000Z",
+  "source": "technical_processor",
+  "coins": [
+    {
+      "symbol": "BTCUSDT",
+      "price": 70870.10,
+      "indicators": {
+        "ema_20": 70927.88,
+        "ema_50": 70861.44,
+        "ema_200": 70672.76,
+        "rsi_14": 47.38,
+        "macd": {
+          "macd_line": 125.50,
+          "signal_line": 118.30,
+          "histogram": 7.20
+        },
+        "atr_14": 142.13,
+        "bollinger": {
+          "upper": 71500.00,
+          "middle": 70900.00,
+          "lower": 70300.00
+        },
+        "volume_ratio": 0.34
+      },
+      "signals": {
+        "trend": "BULLISH",
+        "momentum": "NEUTRAL",
+        "volatility": "LOW"
+      },
+      "score": 65
+    }
+  ]
+}
+```
+
+#### processed_sentiment.json (AI Generated)
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:25.000Z",
+  "source": "sentiment_processor",
+  "ai_model": "gpt-4-turbo",
+  "overall_sentiment": {
+    "score": 72,
+    "label": "BULLISH",
+    "confidence": 0.85
+  },
+  "news_analysis": [
+    {
+      "article_id": "news_001",
+      "title": "Bitcoin ETF approval expected this week",
+      "sentiment": "BULLISH",
+      "score": 85,
+      "impact": "HIGH",
+      "reasoning": "ETF approval would bring institutional money"
+    }
+  ],
+  "twitter_analysis": {
+    "whale_alert_count": 3,
+    "sentiment_ratio": {
+      "positive": 0.6,
+      "neutral": 0.3,
+      "negative": 0.1
+    }
+  },
+  "key_topics": ["ETF", "institutional", "regulation"],
+  "narrative": "Positive sentiment driven by ETF approval expectations"
+}
+```
+
+#### processed_onchain.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:22.000Z",
+  "source": "onchain_processor",
+  "coins": {
+    "BTC": {
+      "signal": "BULLISH",
+      "score": 75,
+      "metrics": {
+        "exchange_flow": "OUTFLOW",
+        "exchange_flow_btc": -1697,
+        "whale_activity": "ACCUMULATING",
+        "fear_greed_index": 65,
+        "fear_greed_label": "Greed"
+      },
+      "reasoning": "Strong outflow from exchanges indicates accumulation"
+    }
+  }
+}
+```
+
+---
+
+### 3.4 Aggregated Data Format (ส่งให้ AI Brain)
+
+#### aggregated_data.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:30.000Z",
+  "source": "aggregator",
+  
+  "current_positions": [
+    {
+      "symbol": "BTCUSDT",
+      "side": "LONG",
+      "entry_price": 69500.00,
+      "current_price": 70870.10,
+      "pnl_percent": 1.97,
+      "leverage": 20,
+      "margin": 10.00,
+      "opened_at": "2026-02-09T20:00:00Z"
+    }
+  ],
+  
+  "account": {
+    "balance_usdt": 1250.00,
+    "available_margin": 1100.00,
+    "total_pnl_today": 45.50
+  },
+  
+  "market_data": {
+    "BTCUSDT": {
+      "price": 70870.10,
+      "technical": {
+        "trend": "BULLISH",
+        "momentum": "NEUTRAL",
+        "score": 65,
+        "ema_20": 70927.88,
+        "rsi_14": 47.38,
+        "macd_histogram": 7.20
+      },
+      "sentiment": {
+        "score": 72,
+        "label": "BULLISH",
+        "key_news": "ETF approval expected"
+      },
+      "onchain": {
+        "score": 75,
+        "signal": "BULLISH",
+        "exchange_flow": "OUTFLOW -1697 BTC"
+      },
+      "combined_score": 70.67,
+      "combined_signal": "BULLISH",
+      "signal_agreement": "3/3 ALIGNED"
+    }
+  },
+  
+  "summary": {
+    "market_outlook": "BULLISH",
+    "best_opportunity": "BTCUSDT",
+    "risk_level": "MEDIUM"
+  }
+}
+```
+
+---
+
+### 3.5 AI Decision Output Format
+
+#### ai_decision.json
+```json
+{
+  "cycle_id": "2026-02-09T23:55:00_abc123",
+  "timestamp": "2026-02-09T23:55:45.000Z",
+  "ai_model": "claude-3-sonnet",
+  "processing_time_ms": 2340,
+  
+  "analysis": {
+    "market_assessment": "ตลาดอยู่ในช่วง consolidation หลังจากปรับฐานจาก ATH มี momentum เริ่มฟื้นตัว",
+    "technical_view": "RSI 47 ยังไม่ overbought, MACD histogram positive, trend alignment ดี",
+    "sentiment_view": "ข่าว ETF สร้าง sentiment เชิงบวก แต่ยังไม่ได้รับการยืนยัน",
+    "onchain_view": "Whale กำลังสะสม exchange outflow สูง ซึ่งเป็นสัญญาณดี"
+  },
+  
+  "position_evaluation": {
+    "BTCUSDT_LONG": {
+      "status": "HEALTHY",
+      "trend_aligned": true,
+      "momentum_status": "NEUTRAL",
+      "recommendation": "HOLD",
+      "reasoning": "กำไร 1.97% trend ยัง aligned momentum ดี ถือต่อได้"
+    }
+  },
+  
+  "decisions": [
+    {
+      "action": "HOLD",
+      "symbol": "BTCUSDT",
+      "reasoning": "Position ยังดี trend aligned, รอ momentum เพิ่มขึ้นอีก"
+    }
+  ],
+  
+  "new_opportunities": [],
+  
+  "risk_warnings": [
+    "RSI ใกล้เคียง neutral zone อาจมี consolidation ต่อ"
+  ],
+  
+  "confidence": 0.78
+}
+```
+
+---
+
+## 💾 Step 4: Supabase Database Schema
+
+### 4.1 Tables Design
+
+```sql
+-- =============================================
+-- CYCLE TRACKING - แต่ละรอบการทำงาน
+-- =============================================
+CREATE TABLE trading_cycles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT UNIQUE NOT NULL,
+    started_at TIMESTAMPTZ NOT NULL,
+    completed_at TIMESTAMPTZ,
+    status TEXT DEFAULT 'running', -- running, completed, error
+    duration_ms INTEGER,
+    error_message TEXT
+);
+
+-- =============================================
+-- RAW DATA - เก็บข้อมูลดิบ
+-- =============================================
+CREATE TABLE raw_binance_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    symbol TEXT NOT NULL,
+    price DECIMAL,
+    ohlcv_5m JSONB,
+    ohlcv_1h JSONB,
+    volume_24h DECIMAL,
+    order_book JSONB,
+    collected_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE raw_news_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    title TEXT,
+    source TEXT,
+    url TEXT,
+    published_at TIMESTAMPTZ,
+    raw_content TEXT,
+    collected_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE raw_twitter_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    tweet_id TEXT,
+    author TEXT,
+    content TEXT,
+    metrics JSONB,
+    collected_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE raw_onchain_data (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    coin TEXT NOT NULL,
+    exchange_netflow DECIMAL,
+    whale_transactions JSONB,
+    fear_greed_index INTEGER,
+    collected_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================
+-- PROCESSED DATA - ข้อมูลแปลงแล้ว
+-- =============================================
+CREATE TABLE processed_technical (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    symbol TEXT NOT NULL,
+    price DECIMAL,
+    ema_20 DECIMAL,
+    ema_50 DECIMAL,
+    ema_200 DECIMAL,
+    rsi_14 DECIMAL,
+    macd_line DECIMAL,
+    macd_signal DECIMAL,
+    macd_histogram DECIMAL,
+    atr_14 DECIMAL,
+    volume_ratio DECIMAL,
+    trend TEXT,
+    momentum TEXT,
+    score INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE processed_sentiment (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    overall_score INTEGER,
+    overall_label TEXT,
+    news_analysis JSONB,
+    twitter_analysis JSONB,
+    key_topics TEXT[],
+    narrative TEXT,
+    ai_model TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE processed_onchain (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    coin TEXT NOT NULL,
+    signal TEXT,
+    score DECIMAL,
+    exchange_flow TEXT,
+    whale_activity TEXT,
+    reasoning TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================
+-- AI DECISIONS - การตัดสินใจของ AI
+-- =============================================
+CREATE TABLE ai_decisions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    ai_model TEXT,
+    market_assessment TEXT,
+    technical_view TEXT,
+    sentiment_view TEXT,
+    onchain_view TEXT,
+    decisions JSONB,
+    position_evaluations JSONB,
+    new_opportunities JSONB,
+    risk_warnings TEXT[],
+    confidence DECIMAL,
+    processing_time_ms INTEGER,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================
+-- TRADES - ประวัติการเทรด
+-- =============================================
+CREATE TABLE trades (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT REFERENCES trading_cycles(cycle_id),
+    ai_decision_id UUID REFERENCES ai_decisions(id),
+    symbol TEXT NOT NULL,
+    action TEXT NOT NULL, -- OPEN_LONG, OPEN_SHORT, CLOSE
+    side TEXT, -- LONG, SHORT
+    leverage INTEGER,
+    margin DECIMAL,
+    entry_price DECIMAL,
+    exit_price DECIMAL,
+    quantity DECIMAL,
+    pnl DECIMAL,
+    pnl_percent DECIMAL,
+    reasoning TEXT,
+    status TEXT DEFAULT 'pending', -- pending, filled, cancelled, error
+    binance_order_id TEXT,
+    opened_at TIMESTAMPTZ DEFAULT NOW(),
+    closed_at TIMESTAMPTZ
+);
+
+-- =============================================
+-- ERROR LOGS - เก็บ Error
+-- =============================================
+CREATE TABLE error_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    cycle_id TEXT,
+    component TEXT,
+    error_type TEXT,
+    error_message TEXT,
+    stack_trace TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- =============================================
+-- INDEXES
+-- =============================================
+CREATE INDEX idx_cycles_started_at ON trading_cycles(started_at DESC);
+CREATE INDEX idx_technical_cycle ON processed_technical(cycle_id);
+CREATE INDEX idx_sentiment_cycle ON processed_sentiment(cycle_id);
+CREATE INDEX idx_decisions_cycle ON ai_decisions(cycle_id);
+CREATE INDEX idx_trades_cycle ON trades(cycle_id);
+CREATE INDEX idx_trades_symbol ON trades(symbol);
+```
+
+---
+
+## 🤖 Step 5: Core Components Code
+
+### 5.1 Main Entry Point
+
+#### main.py
+```python
+"""
+JARVIS v5 - AI Trading Bot
+Main entry point for the trading system
+"""
+
+import asyncio
+import time
+from datetime import datetime
+import uuid
+from loguru import logger
+
+from src.collectors.binance_collector import BinanceCollector
+from src.collectors.news_collector import NewsCollector
+from src.collectors.onchain_collector import OnchainCollector
+from src.processors.technical_processor import TechnicalProcessor
+from src.processors.sentiment_processor import SentimentProcessor
+from src.processors.aggregator import DataAggregator
+from src.brain.ai_brain import AIBrain
+from src.executor.binance_trader import BinanceTrader
+from src.database.supabase_client import SupabaseClient
+from src.utils.telegram_notifier import TelegramNotifier
+from src.utils.config import Config
+
+# Configure logging
+logger.add("logs/jarvis_{time}.log", rotation="100 MB")
+
+class TradingBot:
+    def __init__(self):
+        self.config = Config()
+        
+        # Initialize components
+        self.db = SupabaseClient()
+        self.telegram = TelegramNotifier()
+        
+        # Collectors (BOT layer)
+        self.binance_collector = BinanceCollector()
+        self.news_collector = NewsCollector()
+        self.onchain_collector = OnchainCollector()
+        
+        # Processors
+        self.technical_processor = TechnicalProcessor()
+        self.sentiment_processor = SentimentProcessor()
+        self.aggregator = DataAggregator()
+        
+        # Brain (AI layer)
+        self.ai_brain = AIBrain()
+        
+        # Executor
+        self.trader = BinanceTrader()
+        
+        logger.info("🚀 Trading Bot initialized")
+    
+    async def run_cycle(self):
+        """Run one complete trading cycle"""
+        cycle_id = f"{datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S')}_{uuid.uuid4().hex[:8]}"
+        cycle_start = time.time()
+        
+        logger.info(f"{'='*50}")
+        logger.info(f"🔄 Starting cycle: {cycle_id}")
+        
+        # Store all data for this cycle
+        cycle_data = {
+            "cycle_id": cycle_id,
+            "raw": {},
+            "processed": {},
+            "decision": None,
+            "trades": []
+        }
+        
+        try:
+            # === PHASE 1: DATA COLLECTION (BOT) ===
+            logger.info("📥 Phase 1: Collecting data...")
+            
+            raw_binance = await self.binance_collector.collect()
+            raw_news = await self.news_collector.collect()
+            raw_onchain = await self.onchain_collector.collect()
+            
+            cycle_data["raw"] = {
+                "binance": raw_binance,
+                "news": raw_news,
+                "onchain": raw_onchain
+            }
+            
+            # === PHASE 2: PROCESSING ===
+            logger.info("⚙️ Phase 2: Processing data...")
+            
+            processed_technical = self.technical_processor.process(raw_binance)
+            processed_sentiment = await self.sentiment_processor.process(raw_news)
+            processed_onchain = self.onchain_collector.process(raw_onchain)
+            
+            cycle_data["processed"] = {
+                "technical": processed_technical,
+                "sentiment": processed_sentiment,
+                "onchain": processed_onchain
+            }
+            
+            # === PHASE 3: AGGREGATION ===
+            logger.info("📊 Phase 3: Aggregating data...")
+            
+            # Get current positions
+            positions = await self.trader.get_positions()
+            balance = await self.trader.get_balance()
+            
+            aggregated = self.aggregator.aggregate(
+                technical=processed_technical,
+                sentiment=processed_sentiment,
+                onchain=processed_onchain,
+                positions=positions,
+                balance=balance,
+                cycle_id=cycle_id
+            )
+            
+            # === PHASE 4: AI DECISION ===
+            logger.info("🧠 Phase 4: AI analyzing...")
+            
+            decision = await self.ai_brain.analyze(aggregated)
+            cycle_data["decision"] = decision
+            
+            # === PHASE 5: EXECUTE TRADES ===
+            logger.info("💹 Phase 5: Executing trades...")
+            
+            for action in decision.get("decisions", []):
+                if action["action"] != "HOLD":
+                    result = await self.trader.execute(action)
+                    cycle_data["trades"].append(result)
+            
+            # === PHASE 6: SAVE TO DATABASE ===
+            logger.info("💾 Phase 6: Saving to database...")
+            
+            await self.save_cycle_to_db(cycle_data)
+            
+            # === SEND NOTIFICATION ===
+            await self.send_cycle_summary(cycle_data)
+            
+            cycle_duration = time.time() - cycle_start
+            logger.info(f"✅ Cycle completed in {cycle_duration:.2f}s")
+            
+        except Exception as e:
+            logger.error(f"❌ Cycle error: {str(e)}")
+            await self.db.log_error(cycle_id, "main", str(e))
+            await self.telegram.send_error(f"Cycle {cycle_id} failed: {str(e)}")
+    
+    async def save_cycle_to_db(self, data):
+        """Save all cycle data to Supabase"""
+        cycle_id = data["cycle_id"]
+        
+        # Save cycle record
+        await self.db.insert_cycle(cycle_id)
+        
+        # Save raw data
+        for source, raw_data in data["raw"].items():
+            await self.db.insert_raw_data(cycle_id, source, raw_data)
+        
+        # Save processed data
+        for source, processed_data in data["processed"].items():
+            await self.db.insert_processed_data(cycle_id, source, processed_data)
+        
+        # Save AI decision
+        if data["decision"]:
+            await self.db.insert_ai_decision(cycle_id, data["decision"])
+        
+        # Save trades
+        for trade in data["trades"]:
+            await self.db.insert_trade(cycle_id, trade)
+        
+        # Mark cycle complete
+        await self.db.complete_cycle(cycle_id)
+    
+    async def send_cycle_summary(self, data):
+        """Send Telegram notification with cycle summary"""
+        decision = data.get("decision", {})
+        
+        # Build summary message
+        msg = f"🔄 Cycle: {data['cycle_id'][:19]}\n"
+        msg += f"━━━━━━━━━━━━━━━━━━━━\n"
+        
+        # Add market assessment
+        if decision.get("analysis"):
+            msg += f"📊 {decision['analysis'].get('market_assessment', 'N/A')[:100]}\n"
+        
+        # Add decisions
+        for d in decision.get("decisions", []):
+            action = d.get("action", "HOLD")
+            symbol = d.get("symbol", "")
+            reasoning = d.get("reasoning", "")[:50]
+            
+            if action == "OPEN_LONG":
+                msg += f"🟢 OPEN LONG {symbol}\n"
+            elif action == "OPEN_SHORT":
+                msg += f"🔴 OPEN SHORT {symbol}\n"
+            elif action == "CLOSE":
+                msg += f"⚪ CLOSE {symbol}\n"
+            else:
+                msg += f"⏸️ HOLD - {reasoning}\n"
+        
+        # Add trades executed
+        if data["trades"]:
+            msg += f"\n💹 Trades executed: {len(data['trades'])}"
+        
+        await self.telegram.send_message(msg)
+    
+    async def run_forever(self):
+        """Run trading cycles every 5 minutes"""
+        logger.info("🚀 Starting trading bot (5 min cycles)")
+        
+        while True:
+            try:
+                await self.run_cycle()
+            except Exception as e:
+                logger.error(f"Fatal error: {e}")
+            
+            # Wait 5 minutes
+            logger.info("⏳ Waiting 5 minutes for next cycle...")
+            await asyncio.sleep(300)
+
+if __name__ == "__main__":
+    bot = TradingBot()
+    asyncio.run(bot.run_forever())
+```
+
+---
+
+### 5.2 Binance Collector (with Indicators)
+
+#### src/collectors/binance_collector.py
+```python
+"""
+Binance Data Collector
+Collects price, OHLCV, and calculates technical indicators
+"""
+
+import asyncio
+from datetime import datetime
+from binance.client import Client
+from binance.enums import *
+import pandas as pd
+import numpy as np
+from loguru import logger
+
+from src.utils.config import Config
+
+class BinanceCollector:
+    def __init__(self):
+        config = Config()
+        self.client = Client(
+            config.BINANCE_API_KEY,
+            config.BINANCE_API_SECRET
+        )
+        
+        # Coins to track
+        self.symbols = [
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT",
+            "XRPUSDT", "ADAUSDT", "DOGEUSDT", "AVAXUSDT",
+            "DOTUSDT", "LINKUSDT"
+        ]
+    
+    async def collect(self):
+        """Collect data for all symbols"""
+        logger.info(f"📥 Collecting Binance data for {len(self.symbols)} coins")
+        
+        results = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "source": "binance_collector",
+            "coins": []
+        }
+        
+        for symbol in self.symbols:
+            try:
+                data = await self._collect_symbol(symbol)
+                results["coins"].append(data)
+            except Exception as e:
+                logger.error(f"Error collecting {symbol}: {e}")
+        
+        return results
+    
+    async def _collect_symbol(self, symbol):
+        """Collect data for single symbol"""
+        
+        # Get current price
+        ticker = self.client.get_symbol_ticker(symbol=symbol)
+        price = float(ticker['price'])
+        
+        # Get 24h stats
+        stats = self.client.get_ticker(symbol=symbol)
+        
+        # Get OHLCV data (5m timeframe, last 200 candles)
+        klines_5m = self.client.get_klines(
+            symbol=symbol,
+            interval=KLINE_INTERVAL_5MINUTE,
+            limit=200
+        )
+        
+        # Get 1h data for longer-term view
+        klines_1h = self.client.get_klines(
+            symbol=symbol,
+            interval=KLINE_INTERVAL_1HOUR,
+            limit=24
+        )
+        
+        # Convert to OHLCV format
+        ohlcv_5m = self._parse_klines(klines_5m)
+        ohlcv_1h = self._parse_klines(klines_1h)
+        
+        # Get order book
+        order_book = self.client.get_order_book(symbol=symbol, limit=5)
+        
+        return {
+            "symbol": symbol,
+            "price": price,
+            "ohlcv_5m": ohlcv_5m,
+            "ohlcv_1h": ohlcv_1h,
+            "volume_24h": float(stats['volume']),
+            "price_change_24h": float(stats['priceChangePercent']),
+            "high_24h": float(stats['highPrice']),
+            "low_24h": float(stats['lowPrice']),
+            "order_book": {
+                "bid": float(order_book['bids'][0][0]) if order_book['bids'] else 0,
+                "ask": float(order_book['asks'][0][0]) if order_book['asks'] else 0,
+                "spread": abs(float(order_book['asks'][0][0]) - float(order_book['bids'][0][0])) if order_book['bids'] and order_book['asks'] else 0
+            }
+        }
+    
+    def _parse_klines(self, klines):
+        """Parse Binance klines to OHLCV format"""
+        result = []
+        for k in klines[-50:]:  # Last 50 candles
+            result.append({
+                "t": datetime.fromtimestamp(k[0]/1000).isoformat() + "Z",
+                "o": float(k[1]),
+                "h": float(k[2]),
+                "l": float(k[3]),
+                "c": float(k[4]),
+                "v": float(k[5])
+            })
+        return result
+```
+
+---
+
+### 5.3 News Collector (with Stealth Scraping)
+
+#### src/collectors/news_collector.py
+```python
+"""
+News Collector with Stealth Scraping
+Uses Playwright with stealth plugin to bypass anti-bot detection
+"""
+
+import asyncio
+from datetime import datetime
+import feedparser
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
+from loguru import logger
+
+class NewsCollector:
+    def __init__(self):
+        # RSS Feeds (ไม่ต้อง scrape)
+        self.rss_feeds = {
+            "coindesk": "https://www.coindesk.com/arc/outboundfeeds/rss/",
+            "cointelegraph": "https://cointelegraph.com/rss",
+            "cryptonews": "https://cryptonews.com/news/feed/"
+        }
+        
+        # Sites to scrape (ใช้ Playwright)
+        self.scrape_sites = [
+            "https://www.theblock.co/latest",
+            "https://decrypt.co/news"
+        ]
+    
+    async def collect(self):
+        """Collect news from all sources"""
+        logger.info("📥 Collecting news...")
+        
+        results = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "source": "news_collector",
+            "articles": []
+        }
+        
+        # Collect from RSS feeds
+        rss_articles = await self._collect_rss()
+        results["articles"].extend(rss_articles)
+        
+        # Scrape additional sites
+        scraped_articles = await self._scrape_sites()
+        results["articles"].extend(scraped_articles)
+        
+        logger.info(f"📰 Collected {len(results['articles'])} articles")
+        return results
+    
+    async def _collect_rss(self):
+        """Collect from RSS feeds"""
+        articles = []
+        
+        for source, url in self.rss_feeds.items():
+            try:
+                feed = feedparser.parse(url)
+                for entry in feed.entries[:5]:  # Top 5 from each
+                    articles.append({
+                        "id": f"rss_{source}_{hash(entry.get('link', ''))}",
+                        "title": entry.get('title', ''),
+                        "source": source,
+                        "url": entry.get('link', ''),
+                        "published_at": entry.get('published', ''),
+                        "summary": entry.get('summary', '')[:500]
+                    })
+            except Exception as e:
+                logger.error(f"RSS error {source}: {e}")
+        
+        return articles
+    
+    async def _scrape_sites(self):
+        """Scrape news sites with stealth browser"""
+        articles = []
+        
+        async with async_playwright() as p:
+            # Launch browser with stealth settings
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox'
+                ]
+            )
+            
+            context = await browser.new_context(
+                viewport={'width': 1920, 'height': 1080},
+                user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+            )
+            
+            page = await context.new_page()
+            
+            # Apply stealth patches
+            await stealth_async(page)
+            
+            for url in self.scrape_sites:
+                try:
+                    scraped = await self._scrape_page(page, url)
+                    articles.extend(scraped)
+                except Exception as e:
+                    logger.error(f"Scrape error {url}: {e}")
+            
+            await browser.close()
+        
+        return articles
+    
+    async def _scrape_page(self, page, url):
+        """Scrape single page"""
+        articles = []
+        
+        # Navigate with timeout
+        await page.goto(url, wait_until='networkidle', timeout=30000)
+        
+        # Wait for content
+        await page.wait_for_timeout(2000)
+        
+        # Extract headlines (customize selectors per site)
+        if 'theblock.co' in url:
+            headlines = await page.query_selector_all('article h2')
+        elif 'decrypt.co' in url:
+            headlines = await page.query_selector_all('article h3')
+        else:
+            headlines = []
+        
+        for i, h in enumerate(headlines[:5]):
+            text = await h.inner_text()
+            link_elem = await h.query_selector('a')
+            link = await link_elem.get_attribute('href') if link_elem else ''
+            
+            articles.append({
+                "id": f"scrape_{hash(link)}",
+                "title": text,
+                "source": url.split('/')[2],
+                "url": link if link.startswith('http') else url + link,
+                "published_at": datetime.utcnow().isoformat() + "Z"
+            })
+        
+        return articles
+```
+
+---
+
+### 5.4 AI Brain (Decision Engine)
+
+#### src/brain/ai_brain.py
+```python
+"""
+AI Brain - Main Decision Engine
+Uses OpenAI/Claude for intelligent trading decisions
+"""
+
+import asyncio
+import json
+from datetime import datetime
+from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
+from loguru import logger
+
+from src.utils.config import Config
+
+class AIBrain:
+    def __init__(self):
+        config = Config()
+        
+        # AI Clients
+        self.openai = AsyncOpenAI(api_key=config.OPENAI_API_KEY)
+        self.anthropic = AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY)
+        
+        # Default model
+        self.model = "claude-3-sonnet-20240229"  # หรือ "gpt-4-turbo"
+        
+        # Load prompts
+        self.entry_prompt = self._load_prompt("entry_prompt.txt")
+        self.exit_prompt = self._load_prompt("exit_prompt.txt")
+    
+    def _load_prompt(self, filename):
+        """Load prompt template"""
+        with open(f"src/brain/prompts/{filename}", "r", encoding="utf-8") as f:
+            return f.read()
+    
+    async def analyze(self, aggregated_data):
+        """Main analysis entry point"""
+        logger.info("🧠 AI Brain analyzing market...")
+        
+        start_time = datetime.utcnow()
+        
+        # Build the analysis prompt
+        prompt = self._build_analysis_prompt(aggregated_data)
+        
+        # Call AI
+        if "claude" in self.model:
+            response = await self._call_claude(prompt)
+        else:
+            response = await self._call_openai(prompt)
+        
+        # Parse response
+        decision = self._parse_response(response)
+        
+        # Add metadata
+        decision["ai_model"] = self.model
+        decision["processing_time_ms"] = int(
+            (datetime.utcnow() - start_time).total_seconds() * 1000
+        )
+        
+        return decision
+    
+    def _build_analysis_prompt(self, data):
+        """Build comprehensive analysis prompt"""
+        
+        prompt = f"""# 🤖 AI Trading Analysis
+
+## Current Time: {datetime.utcnow().isoformat()}Z
+
+## 💰 Account Status
+- Balance: ${data['account']['balance_usdt']:.2f} USDT
+- Available Margin: ${data['account']['available_margin']:.2f} USDT
+- Today's PnL: ${data['account']['total_pnl_today']:.2f}
+
+## 📊 Current Positions
+"""
+        
+        if data.get('current_positions'):
+            for pos in data['current_positions']:
+                prompt += f"""
+### {pos['symbol']} ({pos['side']})
+- Entry: ${pos['entry_price']}
+- Current: ${pos['current_price']}
+- PnL: {pos['pnl_percent']:.2f}%
+- Leverage: {pos['leverage']}x
+- Margin: ${pos['margin']}
+- Opened: {pos['opened_at']}
+"""
+        else:
+            prompt += "\n*No open positions*\n"
+        
+        prompt += "\n## 📈 Market Data\n"
+        
+        for symbol, market in data.get('market_data', {}).items():
+            prompt += f"""
+### {symbol}
+**Price:** ${market['price']:,.2f}
+
+**Technical Analysis:**
+- Trend: {market['technical']['trend']}
+- Momentum: {market['technical']['momentum']}
+- Score: {market['technical']['score']}/100
+- EMA20: ${market['technical']['ema_20']:,.2f}
+- RSI(14): {market['technical']['rsi_14']:.1f}
+- MACD Histogram: {market['technical']['macd_histogram']:.2f}
+
+**Sentiment Analysis:**
+- Score: {market['sentiment']['score']}/100
+- Label: {market['sentiment']['label']}
+- Key News: {market['sentiment'].get('key_news', 'N/A')}
+
+**On-chain Analysis:**
+- Score: {market['onchain']['score']}/100
+- Signal: {market['onchain']['signal']}
+- Exchange Flow: {market['onchain']['exchange_flow']}
+
+**Combined:** Score {market['combined_score']:.0f} | Signal {market['combined_signal']} | Agreement {market['signal_agreement']}
+---
+"""
+        
+        prompt += """
+## 🎯 Your Task
+
+วิเคราะห์ข้อมูลทั้งหมดและตัดสินใจ:
+
+1. **สำหรับ Position ที่เปิดอยู่:**
+   - ดู Trend alignment - Position ยังมาถูกทางไหม?
+   - ดู Momentum - แรงยังดีหรือเริ่มอ่อน?
+   - ไม่ต้องดู PnL% เป็นหลัก แต่ดู Trend conviction
+   - ถ้า Trend ยัง aligned และ momentum ดี = HOLD
+   - ถ้า Trend เปลี่ยนทาง = CLOSE (ไม่ว่าจะกำไรหรือขาดทุน)
+   - ถ้ากำไร >10% และเห็นสัญญาณกลับตัว = TAKE PROFIT
+
+2. **สำหรับหาโอกาสใหม่:**
+   - ต้องมี 2+ signals aligned (Technical + Sentiment หรือ On-chain)
+   - Momentum ไม่อยู่ใน extreme zone (RSI ไม่ >70 หรือ <30)
+   - Volume สนับสนุน
+
+## 📤 Output Format (JSON)
+
+```json
+{
+  "analysis": {
+    "market_assessment": "บทสรุปภาพรวมตลาด",
+    "technical_view": "มุมมอง Technical",
+    "sentiment_view": "มุมมอง Sentiment",
+    "onchain_view": "มุมมอง On-chain"
+  },
+  "position_evaluation": {
+    "BTCUSDT_LONG": {
+      "status": "HEALTHY|WARNING|DANGER",
+      "trend_aligned": true|false,
+      "momentum_status": "STRONG|NEUTRAL|WEAKENING|REVERSAL",
+      "recommendation": "HOLD|CLOSE|ADD",
+      "reasoning": "เหตุผล"
+    }
+  },
+  "decisions": [
+    {
+      "action": "HOLD|OPEN_LONG|OPEN_SHORT|CLOSE",
+      "symbol": "BTCUSDT",
+      "leverage": 20,
+      "margin": 10,
+      "reasoning": "เหตุผล"
+    }
+  ],
+  "new_opportunities": [
+    {
+      "symbol": "ETHUSDT",
+      "side": "LONG|SHORT",
+      "conviction": 0.75,
+      "reasoning": "เหตุผล"
+    }
+  ],
+  "risk_warnings": ["warning 1", "warning 2"],
+  "confidence": 0.78
+}
+```
+
+ตอบเป็น JSON เท่านั้น ไม่ต้องอธิบายเพิ่ม"""
+        
+        return prompt
+    
+    async def _call_claude(self, prompt):
+        """Call Claude API"""
+        response = await self.anthropic.messages.create(
+            model=self.model,
+            max_tokens=2000,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        return response.content[0].text
+    
+    async def _call_openai(self, prompt):
+        """Call OpenAI API"""
+        response = await self.openai.chat.completions.create(
+            model="gpt-4-turbo",
+            messages=[
+                {"role": "system", "content": "You are an expert crypto trading AI."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=2000
+        )
+        return response.choices[0].message.content
+    
+    def _parse_response(self, response):
+        """Parse AI response to structured format"""
+        try:
+            # Extract JSON from response
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            json_str = response[json_start:json_end]
+            
+            return json.loads(json_str)
+        except Exception as e:
+            logger.error(f"Failed to parse AI response: {e}")
+            return {
+                "analysis": {"market_assessment": "Parse error"},
+                "decisions": [{"action": "HOLD", "reasoning": "Parse error"}],
+                "confidence": 0
+            }
+```
+
+---
+
+## 🧪 Step 6: Test Cases
+
+### Test Case 1: Data Collection Output
+
+```bash
+# Run collector test
+python -c "
+import asyncio
+from src.collectors.binance_collector import BinanceCollector
+
+async def test():
+    collector = BinanceCollector()
+    data = await collector.collect()
+    print('=== TEST: Binance Collector ===')
+    print(f'Coins collected: {len(data[\"coins\"])}')
+    for coin in data['coins'][:2]:
+        print(f'{coin[\"symbol\"]}: ${coin[\"price\"]}')
+        print(f'  OHLCV candles: {len(coin[\"ohlcv_5m\"])}')
+
+asyncio.run(test())
+"
+```
+
+**Expected Output:**
+```
+=== TEST: Binance Collector ===
+Coins collected: 10
+BTCUSDT: $70870.10
+  OHLCV candles: 50
+ETHUSDT: $2091.19
+  OHLCV candles: 50
+```
+
+### Test Case 2: Aggregated Data
+
+```bash
+# Run aggregation test
+python -c "
+import json
+
+# Load sample processed data
+sample = {
+  'cycle_id': 'test_001',
+  'market_data': {
+    'BTCUSDT': {
+      'price': 70870.10,
+      'technical': {'trend': 'BULLISH', 'score': 65, 'rsi_14': 47.38},
+      'sentiment': {'score': 72, 'label': 'BULLISH'},
+      'onchain': {'score': 75, 'signal': 'BULLISH'},
+      'combined_score': 70.67,
+      'combined_signal': 'BULLISH',
+      'signal_agreement': '3/3 ALIGNED'
+    }
+  }
+}
+print('=== TEST: Aggregated Data ===')
+print(json.dumps(sample, indent=2))
+"
+```
+
+### Test Case 3: AI Decision Mock
+
+```json
+{
+  "test_name": "Position Analysis - Trend Aligned",
+  "input": {
+    "position": {
+      "symbol": "BTCUSDT",
+      "side": "LONG",
+      "pnl_percent": -5.5
+    },
+    "market": {
+      "trend": "BULLISH",
+      "momentum": "NEUTRAL",
+      "rsi": 52
+    }
+  },
+  "expected_output": {
+    "recommendation": "HOLD",
+    "reasoning": "ขาดทุน 5.5% แต่ trend ยัง BULLISH และ momentum ดี ถือรอกลับตัว"
+  }
+}
+```
+
+---
+
+## 🚀 Step 7: PM2 Configuration
+
+### ecosystem.config.js
+```javascript
+module.exports = {
+  apps: [
+    {
+      name: 'jarvis-v5',
+      script: 'main.py',
+      interpreter: '/home/user/jarvis_v5/venv/bin/python',
+      cwd: '/home/user/jarvis_v5',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      max_memory_restart: '2G',
+      env: {
+        NODE_ENV: 'production'
+      },
+      log_file: './logs/jarvis.log',
+      out_file: './logs/jarvis_out.log',
+      err_file: './logs/jarvis_error.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true
+    }
+  ]
+};
+```
+
+### Start Commands
+```bash
+# Start bot
+pm2 start ecosystem.config.js
+
+# View logs
+pm2 logs jarvis-v5
+
+# Monitor
+pm2 monit
+
+# Restart
+pm2 restart jarvis-v5
+```
+
+---
+
+## ⚙️ Step 8: Environment Variables
+
+### .env
+```bash
+# === BINANCE ===
+BINANCE_API_KEY=your_binance_api_key
+BINANCE_API_SECRET=your_binance_api_secret
+
+# === AI PROVIDERS ===
+OPENAI_API_KEY=your_openai_key
+ANTHROPIC_API_KEY=your_anthropic_key
+
+# === DATABASE ===
+SUPABASE_URL=https://xxxxx.supabase.co
+SUPABASE_KEY=your_supabase_anon_key
+
+# === TELEGRAM ===
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_CHAT_ID=123456789
+
+# === TWITTER (Optional) ===
+TWITTER_BEARER_TOKEN=your_twitter_bearer_token
+
+# === SETTINGS ===
+CYCLE_INTERVAL_SECONDS=300
+MAX_POSITIONS=3
+DEFAULT_LEVERAGE=20
+DEFAULT_MARGIN=10
+```
+
+---
+
+## ✅ Verification Checklist
+
+- [ ] VPS ติดตั้ง Python 3.11, Node.js 20, PM2
+- [ ] Virtual environment สร้างและ activate แล้ว
+- [ ] Dependencies ติดตั้งครบ (pip, npm)
+- [ ] Playwright browsers ติดตั้งแล้ว
+- [ ] .env file มีค่าครบทุก key
+- [ ] Supabase tables สร้างครบ
+- [ ] Test collectors ทำงานได้
+- [ ] Test AI brain ตอบ JSON ถูกต้อง
+- [ ] PM2 รันได้ไม่ crash
+- [ ] Telegram notification ส่งได้
+
+---
+
+## 📝 Notes
+
+> [!WARNING]
+> **ก่อนรัน Production:**
+> 1. ทดสอบกับ Binance Testnet ก่อน
+> 2. เริ่มด้วย margin ต่ำๆ (เช่น $5)
+> 3. Monitor logs อย่างน้อย 24 ชั่วโมงแรก
+
+> [!TIP]
+> **Debug Tips:**
+> - ดู Supabase Dashboard เพื่อดูข้อมูลแต่ละ cycle
+> - ตรวจสอบ `ai_decisions` table เพื่อดูว่า AI คิดอะไร
+> - เปรียบเทียบ `raw_*` กับ `processed_*` เพื่อหาปัญหา

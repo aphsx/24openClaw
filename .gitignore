@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.venv/
+env/
+ENV/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Data files (keep structure, ignore content)
+data/raw/*.json
+data/processed/*.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Node modules (for PM2)
+node_modules/
+
+# Distribution
+dist/
+build/
+*.egg-info/
+
+# Playwright
+.playwright/
+
+# Test
+.pytest_cache/
+.coverage
+htmlcov/
