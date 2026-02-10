@@ -1,49 +1,70 @@
-# JARVIS v5 - AI Trading Bot
+# 🤖 ClawBot AI — Automated Crypto Scalper
 
-## 🚀 Quick Start
+AI-powered crypto scalping bot for Binance Futures. Uses free tools only.
+
+## Architecture
+
+```
+Collect (parallel) → Process → Aggregate → AI Decision → Execute → Notify
+  ├── Binance API     ├── Technical    ├── Combined   ├── Groq (FREE)  ├── Binance  ├── Telegram
+  │   (price, OHLCV,  │   Indicators   │   Scoring    │   Claude       │   Futures
+  │   funding rate,    │   (RSI-7/14,   │   (55% tech  │   Kimi         │
+  │   L/S ratio)       │   EMA-9/21/55  │   25% sent   │   Fallback     │
+  ├── News RSS+Scrape  │   MACD, BB,    │   20% onch)  │
+  │   (12+ sources,    │   ATR, Vol)    │
+  │   anti-blocking)   │
+  └── On-Chain         └── Sentiment
+      (Fear & Greed,       (AI-analyzed)
+      CoinGecko)
+```
+
+## Quick Start
 
 ```bash
-# 1. Create virtual environment
-python -m venv venv
-.\venv\Scripts\activate  # Windows
+# Clone and setup
+git clone <repo-url> && cd 24openClaw
+cp .env.example .env
+# Edit .env with your keys
 
-# 2. Install dependencies
+# Install dependencies
 pip install -r requirements.txt
+playwright install chromium
 
-# 3. Configure .env
-copy .env.example .env
-# Edit .env with your API keys
-
-# 4. Run
+# Run
 python main.py
 ```
 
-## 📁 Project Structure
+## Free Stack (ค่าใช้จ่าย $0)
 
-```
-jarvis_v5/
-├── src/
-│   ├── collectors/     # BOT Layer - Data collection
-│   ├── processors/     # Transform Layer - Data processing
-│   ├── brain/          # AI Layer - Decision making
-│   ├── executor/       # Trade Layer - Order execution
-│   ├── database/       # Data Layer - Supabase
-│   └── utils/          # Utilities
-├── data/               # Temp data storage
-├── logs/               # Log files
-├── tests/              # Test cases
-└── main.py             # Entry point
-```
+| Component | Provider | Cost |
+|-----------|----------|------|
+| Price Data | Binance API | FREE |
+| News | RSS + Web Scraping | FREE |
+| AI Brain | Groq (Llama 3.1-70B) | FREE |
+| Database | Supabase (500MB) | FREE |
+| Notifications | Telegram Bot | FREE |
+| On-Chain | CoinGecko + Alternative.me | FREE |
 
-## 🤖 AI Models
+## Scalping Settings
 
-- **Claude 3** (Anthropic) - Primary decision engine
-- **Kimi** (Moonshot AI) - Backup/validation
+- **Cycle**: Every 2 minutes
+- **Leverage**: 20x
+- **Stop Loss**: -3%
+- **Take Profit**: +5%
+- **Max Positions**: 3 (configurable)
+- **Strategy**: Trend + Momentum alignment with fast EMAs
 
-## 📊 Coins Tracked
+## Docs
 
-BTC, ETH, BNB, SOL, XRP, ADA, DOGE, AVAX, DOT, LINK
+| Document | Description |
+|----------|-------------|
+| [WORKFLOW](docs/WORKFLOW.md) | Trading cycle flow |
+| [DATA_SOURCES](docs/DATA_SOURCES.md) | All free data sources |
+| [AI_DECISION_LOGIC](docs/AI_DECISION_LOGIC.md) | Decision framework |
+| [DEPLOYMENT](docs/DEPLOYMENT.md) | VPS setup guide |
+| [NEWS_SCRAPING](docs/NEWS_SCRAPING.md) | Scraping guide & recommendations |
+| [DATABASE_SCHEMA](docs/DATABASE_SCHEMA.md) | Database tables |
 
-## ⚙️ Configuration
+## Config
 
-See `.env.example` for all required environment variables.
+See `.env.example` for all available settings.

@@ -279,6 +279,51 @@ class SupabaseClient:
         except Exception as e:
             logger.error(f"Failed to get performance summary: {e}")
             return {}
+    
+    async def cleanup_old_data(self, days: int = 30) -> bool:
+        """Delete raw data older than N days to save database space.
+        Keeps trades and ai_decisions forever for analysis."""
+        if not self.enabled:
+            return False
+            
+        from datetime import timedelta
+        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        
+        tables_to_clean = [
+            "raw_binance_data",
+            "raw_news_data",
+            "raw_onchain_data",
+            "processed_technical",
+            "processed_sentiment",
+            "aggregated_data",
+        ]
+        
+        total_deleted = 0
+        for table in tables_to_clean:
+            try:
+                result = self.client.table(table)\
+                    .delete()\
+                    .lt("created_at", cutoff)\
+                    .execute()
+                count = len(result.data) if result.data else 0
+                total_deleted += count
+                if count > 0:
+                    logger.info(f"  🧹 Cleaned {count} rows from {table}")
+            except Exception as e:
+                logger.error(f"Failed to clean {table}: {e}")
+        
+        # Also clean old error logs (keep last 7 days)
+        try:
+            error_cutoff = (datetime.utcnow() - timedelta(days=7)).isoformat()
+            self.client.table("error_logs")\
+                .delete()\
+                .lt("created_at", error_cutoff)\
+                .execute()
+        except Exception:
+            pass
+        
+        logger.info(f"🧹 Total cleaned: {total_deleted} rows (data older than {days} days)")
+        return True
 
 
 # Singleton instance

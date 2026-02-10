@@ -1,8 +1,8 @@
-# 🚀 Deployment Guide
+# 🚀 Deployment Guide — VPS 2-Core / 8GB RAM
 
-## Prerequisites
+## Requirements
 
-- VPS with 8GB RAM, 2 cores
+- VPS: 2 cores, 8GB RAM, 40GB SSD
 - Ubuntu 22.04 LTS recommended
 - Python 3.11+
 - Node.js 20+ (for PM2)
@@ -26,170 +26,98 @@ sudo apt install nodejs -y
 sudo npm install -g pm2
 ```
 
----
-
-## Step 2: Clone/Upload Project
+## Step 2: Clone & Configure
 
 ```bash
-# Create directory
-mkdir -p ~/jarvis-v5
-cd ~/jarvis-v5
+# Clone
+git clone <your-repo-url> ~/clawbot
+cd ~/clawbot
 
-# Upload your project files (via SFTP or git)
-# scp -r C:\Users\aphis\Desktop\24\* user@vps:~/jarvis-v5/
-```
-
----
-
-## Step 3: Setup Virtual Environment
-
-```bash
-cd ~/jarvis-v5
-
-# Create venv
+# Create virtual environment
 python3.11 -m venv venv
 source venv/bin/activate
 
 # Install dependencies
-pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Playwright browsers (if needed)
+# Install Playwright browser (Chromium only, save space)
 playwright install chromium
+playwright install-deps chromium
+
+# Configure
+cp .env.example .env
+nano .env  # Fill in your API keys
 ```
 
----
-
-## Step 4: Configure Environment
+## Step 3: Create Directories
 
 ```bash
-# Copy template
-cp .env.example .env
-
-# Edit with your API keys
-nano .env
+mkdir -p logs data/raw data/processed
 ```
 
-Required values:
-```
-BINANCE_API_KEY=your_key
-BINANCE_API_SECRET=your_secret
-ANTHROPIC_API_KEY=your_key (or GROQ_API_KEY)
-SUPABASE_URL=https://xxx.supabase.co
-SUPABASE_KEY=your_key
-TELEGRAM_BOT_TOKEN=your_token
-TELEGRAM_CHAT_ID=your_chat_id
-```
-
----
-
-## Step 5: Setup Database
-
-1. Go to [supabase.com](https://supabase.com)
-2. Create new project
-3. Go to SQL Editor
-4. Paste contents of `supabase_schema.sql`
-5. Run
-
----
-
-## Step 6: Test Run
+## Step 4: Test Run
 
 ```bash
 # Activate venv
-source venv/bin/activate
+source ~/clawbot/venv/bin/activate
 
-# Test run
+# Test single cycle
 python main.py
+# Wait for first cycle to complete, then Ctrl+C
 ```
 
-Check for:
-- ✅ No import errors
-- ✅ Binance connection OK
-- ✅ AI API working
-- ✅ Telegram notifications received
-
----
-
-## Step 7: Start with PM2
+## Step 5: Production with PM2
 
 ```bash
-# Start bot
+# Start
 pm2 start ecosystem.config.js
 
-# Check status
-pm2 status
+# Monitor
+pm2 monit       # Real-time monitoring
+pm2 logs         # View logs
+pm2 status       # Check status
 
-# View logs
-pm2 logs jarvis-v5
-
-# Set to auto-start on boot
+# Auto-restart on reboot
 pm2 startup
 pm2 save
 ```
 
----
-
-## PM2 Commands
+## Step 6: Monitoring
 
 ```bash
-pm2 status          # Check status
-pm2 logs jarvis-v5  # View logs
-pm2 restart jarvis-v5  # Restart
-pm2 stop jarvis-v5  # Stop
-pm2 delete jarvis-v5   # Remove
+# Check memory usage (should be < 2GB normally)
+pm2 monit
+
+# Check logs
+pm2 logs clawbot-ai --lines 50
+
+# Restart if needed
+pm2 restart clawbot-ai
 ```
 
 ---
 
-## Monitoring
+## Memory Management
 
-### Real-time Logs
-```bash
-pm2 logs jarvis-v5 --lines 100
-```
+| Component | Estimated RAM |
+|-----------|--------------|
+| Python bot (no Playwright) | ~100-200MB |
+| Playwright Chromium | ~200-400MB |
+| **Total active** | **~300-600MB** |
+| OS + other services | ~1-2GB |
+| **Available headroom** | **~5-6GB** |
 
-### Log Files
-```bash
-tail -f ~/jarvis-v5/logs/jarvis_*.log
-```
-
-### Supabase Dashboard
-- Go to supabase.com → Your project → Table Editor
-
----
+- PM2 will auto-restart if exceeds 1GB (`max_memory_restart: '1G'`)
+- Playwright browser instance is reused (not spawned each cycle)
+- `gc.collect()` runs after each cycle
+- Data cleanup runs every 24 hours (deletes raw data > 30 days)
 
 ## Troubleshooting
 
-### Bot Not Starting
-```bash
-# Check Python path
-which python3.11
-
-# Check venv activated
-source venv/bin/activate
-
-# Run manually to see errors
-python main.py
-```
-
-### No Telegram Notifications
-```bash
-# Test bot token
-curl https://api.telegram.org/bot<TOKEN>/getMe
-```
-
-### API Errors
-```bash
-# Check environment variables
-cat .env | grep -v '#'
-```
-
----
-
-## Security Tips
-
-1. **Never share `.env` file**
-2. **Use firewall**: `sudo ufw enable`
-3. **SSH key only**: Disable password auth
-4. **Regular updates**: `sudo apt update && upgrade`
+| Problem | Solution |
+|---------|----------|
+| High memory | `pm2 restart clawbot-ai` |
+| Playwright fails | `playwright install chromium` |
+| Bot crashes on start | Check `.env` keys with `python -c "from src.utils.config import config; config.validate()"` |
+| No Telegram notifications | Check `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` |
+| News scraping blocked | Will auto-fallback to RSS; check logs for warnings |

@@ -62,17 +62,29 @@ class Config:
     @classmethod
     def validate(cls):
         """Validate required config values"""
+        from src.utils.logger import logger as _logger
+        
         required = [
             ('BINANCE_API_KEY', cls.BINANCE_API_KEY),
             ('BINANCE_API_SECRET', cls.BINANCE_API_SECRET),
-            ('SUPABASE_URL', cls.SUPABASE_URL),
-            ('SUPABASE_KEY', cls.SUPABASE_KEY),
         ]
         
         missing = [name for name, value in required if not value]
         
         if missing:
             raise ValueError(f"Missing required config: {', '.join(missing)}")
+        
+        # Warn about optional but important config
+        if not cls.SUPABASE_URL or not cls.SUPABASE_KEY:
+            _logger.warning("⚠️ Supabase not configured — running without database")
+        
+        # Check AI provider
+        has_ai = cls.GROQ_API_KEY or cls.ANTHROPIC_API_KEY or cls.KIMI_API_KEY
+        if not has_ai:
+            _logger.warning("⚠️ No AI API key configured — will use fallback rules")
+        
+        if not cls.TELEGRAM_BOT_TOKEN:
+            _logger.warning("⚠️ Telegram not configured — no notifications")
         
         return True
 
