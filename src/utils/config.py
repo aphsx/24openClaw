@@ -1,93 +1,111 @@
 """
-Configuration module
-Loads environment variables and provides config access
+ClawBot AI — Configuration Module
+Pydantic-based settings loaded from .env file
 """
-
 import os
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Load .env file
-load_dotenv()
-
-class Config:
-    """Application configuration"""
-    
-    # === BINANCE ===
-    BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', '')
-    BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', '')
-    
-    # === AI PROVIDERS ===
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
-    KIMI_API_KEY = os.getenv('KIMI_API_KEY', '')
-    GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')  # FREE option!
-    
-    # === AI MODEL SELECTION ===
-    PRIMARY_AI_MODEL = os.getenv('PRIMARY_AI_MODEL', 'groq')  # Default to free
-    BACKUP_AI_MODEL = os.getenv('BACKUP_AI_MODEL', 'claude')
-    
-    # === DATABASE ===
-    SUPABASE_URL = os.getenv('SUPABASE_URL', '')
-    SUPABASE_KEY = os.getenv('SUPABASE_KEY', '')
-    
-    # === TELEGRAM ===
-    TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
-    TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
-    
-    # === SETTINGS ===
-    CYCLE_INTERVAL_SECONDS = int(os.getenv('CYCLE_INTERVAL_SECONDS', '120'))  # 2 min for scalping
-    MAX_POSITIONS = int(os.getenv('MAX_POSITIONS', '2'))  # Reduced for 20x
-    DEFAULT_LEVERAGE = int(os.getenv('DEFAULT_LEVERAGE', '20'))
-    DEFAULT_MARGIN = float(os.getenv('DEFAULT_MARGIN', '10'))
-    
-    # === SCALPING RISK PARAMETERS ===
-    STOP_LOSS_PERCENT = float(os.getenv('STOP_LOSS_PERCENT', '3'))     # -3% for 20x
-    TAKE_PROFIT_PERCENT = float(os.getenv('TAKE_PROFIT_PERCENT', '5')) # +5% target
-    TRAILING_STOP_ENABLED = os.getenv('TRAILING_STOP_ENABLED', 'false').lower() == 'true'
-    MIN_ENTRY_SCORE = int(os.getenv('MIN_ENTRY_SCORE', '65'))  # Lower for scalping
-    
-    # === COINS TO TRACK ===
-    TRACKED_COINS = [
-        "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
-        "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT"
-    ]
-    
-    # === PATHS ===
-    BASE_DIR = Path(__file__).parent.parent.parent
-    DATA_DIR = BASE_DIR / 'data'
-    RAW_DATA_DIR = DATA_DIR / 'raw'
-    PROCESSED_DATA_DIR = DATA_DIR / 'processed'
-    LOGS_DIR = BASE_DIR / 'logs'
-    
-    @classmethod
-    def validate(cls):
-        """Validate required config values"""
-        from src.utils.logger import logger as _logger
-        
-        required = [
-            ('BINANCE_API_KEY', cls.BINANCE_API_KEY),
-            ('BINANCE_API_SECRET', cls.BINANCE_API_SECRET),
-        ]
-        
-        missing = [name for name, value in required if not value]
-        
-        if missing:
-            raise ValueError(f"Missing required config: {', '.join(missing)}")
-        
-        # Warn about optional but important config
-        if not cls.SUPABASE_URL or not cls.SUPABASE_KEY:
-            _logger.warning("⚠️ Supabase not configured — running without database")
-        
-        # Check AI provider
-        has_ai = cls.GROQ_API_KEY or cls.ANTHROPIC_API_KEY or cls.KIMI_API_KEY
-        if not has_ai:
-            _logger.warning("⚠️ No AI API key configured — will use fallback rules")
-        
-        if not cls.TELEGRAM_BOT_TOKEN:
-            _logger.warning("⚠️ Telegram not configured — no notifications")
-        
-        return True
+from typing import List, Optional
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
-# Create singleton instance
-config = Config()
+class Settings(BaseSettings):
+    """All configuration loaded from environment variables."""
+
+    # === Binance API ===
+    BINANCE_API_KEY: str = ""
+    BINANCE_API_SECRET: str = ""
+    BINANCE_TESTNET: bool = True  # True = testnet, False = live
+
+    # === AI Model ===
+    AI_PROVIDER: str = "groq"  # groq / deepseek / gemini / claude / kimi
+    AI_MODEL: str = "llama-3.3-70b-versatile"
+    AI_API_KEY: str = ""
+    AI_TEMPERATURE: float = 0.3
+    AI_MAX_TOKENS: int = 2000
+
+    # Fallback AI (optional)
+    AI_FALLBACK_PROVIDER: str = ""
+    AI_FALLBACK_MODEL: str = ""
+    AI_FALLBACK_API_KEY: str = ""
+
+    # === Trading ===
+    LEVERAGE: int = 20
+    TRADING_SYMBOLS: str = "BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,XRPUSDT,DOGEUSDT,AVAXUSDT,LINKUSDT"
+    MAX_POSITIONS: int = 5  # max concurrent positions (AI decides actual count)
+    MIN_ORDER_USDT: float = 5.0
+
+    # Safety SL/TP (fallback for between cycles)
+    SAFETY_SL_PCT: float = 8.0   # -8% from entry
+    SAFETY_TP_PCT: float = 15.0  # +15% from entry
+
+    # === Risk tiers (balance-based) ===
+    RISK_TIER_TINY: float = 20.0    # <$50 → 20% per trade
+    RISK_TIER_SMALL: float = 10.0   # $50-100 → 10%
+    RISK_TIER_MEDIUM: float = 7.0   # $100-300 → 7%
+    RISK_TIER_LARGE: float = 4.0    # $300-1000 → 4%
+    RISK_TIER_XL: float = 2.5       # >$1000 → 2.5%
+
+    # === Timeframes ===
+    TF_PRIMARY: str = "5m"
+    TF_SECONDARY: str = "15m"
+    TF_TERTIARY: str = "1h"
+    CANDLES_PRIMARY: int = 200
+    CANDLES_SECONDARY: int = 100
+    CANDLES_TERTIARY: int = 48
+
+    # === News ===
+    CRYPTOPANIC_API_KEY: str = ""  # free tier key
+    NEWS_COUNT: int = 20
+    NEWS_TIMEOUT_SECONDS: int = 15
+
+    # === Notifications ===
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    DISCORD_WEBHOOK_URL: str = ""
+
+    # === Database ===
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
+
+    # === Logging ===
+    LOG_LEVEL: str = "INFO"
+    LOG_FILE: str = "logs/clawbot.log"
+
+    # === Binance API URLs ===
+    @property
+    def binance_base_url(self) -> str:
+        if self.BINANCE_TESTNET:
+            return "https://testnet.binancefuture.com"
+        return "https://fapi.binance.com"
+
+    @property
+    def binance_ws_url(self) -> str:
+        if self.BINANCE_TESTNET:
+            return "wss://stream.binancefuture.com"
+        return "wss://fstream.binance.com"
+
+    @property
+    def symbols_list(self) -> List[str]:
+        return [s.strip() for s in self.TRADING_SYMBOLS.split(",") if s.strip()]
+
+    def get_risk_pct(self, balance: float) -> float:
+        """Dynamic risk % based on balance tier."""
+        if balance < 50:
+            return self.RISK_TIER_TINY
+        elif balance < 100:
+            return self.RISK_TIER_SMALL
+        elif balance < 300:
+            return self.RISK_TIER_MEDIUM
+        elif balance < 1000:
+            return self.RISK_TIER_LARGE
+        else:
+            return self.RISK_TIER_XL
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = True
+
+
+# Singleton
+settings = Settings()

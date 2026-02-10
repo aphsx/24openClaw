@@ -1,1 +1,1 @@
-"""src module init"""
+# ClawBot AI - Crypto Scalping Bot

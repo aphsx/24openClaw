@@ -1,70 +1,63 @@
-# 🤖 ClawBot AI — Automated Crypto Scalper
+# 🤖 ClawBot AI — Crypto Scalping Bot
 
-AI-powered crypto scalping bot for Binance Futures. Uses free tools only.
+> OpenClaw AI-powered scalping bot for Binance Futures
+> Profit in **both bull and bear** markets | 20x leverage | 5-minute cycles
 
-## Architecture
-
-```
-Collect (parallel) → Process → Aggregate → AI Decision → Execute → Notify
-  ├── Binance API     ├── Technical    ├── Combined   ├── Groq (FREE)  ├── Binance  ├── Telegram
-  │   (price, OHLCV,  │   Indicators   │   Scoring    │   Claude       │   Futures
-  │   funding rate,    │   (RSI-7/14,   │   (55% tech  │   Kimi         │
-  │   L/S ratio)       │   EMA-9/21/55  │   25% sent   │   Fallback     │
-  ├── News RSS+Scrape  │   MACD, BB,    │   20% onch)  │
-  │   (12+ sources,    │   ATR, Vol)    │
-  │   anti-blocking)   │
-  └── On-Chain         └── Sentiment
-      (Fear & Greed,       (AI-analyzed)
-      CoinGecko)
-```
-
-## Quick Start
+## ⚡ Quick Start
 
 ```bash
-# Clone and setup
-git clone <repo-url> && cd 24openClaw
-cp .env.example .env
-# Edit .env with your keys
-
-# Install dependencies
+# 1. Clone & install
+git clone <repo-url>
+cd 24openClaw
 pip install -r requirements.txt
-playwright install chromium
 
-# Run
-python main.py
+# 2. Configure
+cp .env.example .env
+# Edit .env with your API keys
+
+# 3. Setup database (optional)
+# Run supabase_schema.sql in Supabase SQL Editor
+
+# 4. Test run
+python main.py --dry-run
+
+# 5. Live (cron every 5 min)
+# */5 * * * * cd /path/24openClaw && python main.py
 ```
 
-## Free Stack (ค่าใช้จ่าย $0)
+## 🏗️ Architecture
 
-| Component | Provider | Cost |
-|-----------|----------|------|
-| Price Data | Binance API | FREE |
-| News | RSS + Web Scraping | FREE |
-| AI Brain | Groq (Llama 3.1-70B) | FREE |
-| Database | Supabase (500MB) | FREE |
-| Notifications | Telegram Bot | FREE |
-| On-Chain | CoinGecko + Alternative.me | FREE |
+```
+Cron (5min) → Engine → Parallel Data Fetch → Indicators → AI Decision → Execute → Save
+```
 
-## Scalping Settings
+- **AI Brain**: Groq / DeepSeek / Gemini / Claude / Kimi (configurable)
+- **Data**: Self-written Binance REST API (HMAC-SHA256)
+- **Indicators**: 12 technical indicators (EMA, RSI, MACD, BB, ATR, VWAP, ADX, StochRSI, OBV, Supertrend)
+- **News**: 6 free sources (CryptoPanic, CoinDesk, CoinTelegraph, Binance Blog)
+- **Risk**: Dynamic position sizing based on balance tier + safety SL/TP
 
-- **Cycle**: Every 2 minutes
-- **Leverage**: 20x
-- **Stop Loss**: -3%
-- **Take Profit**: +5%
-- **Max Positions**: 3 (configurable)
-- **Strategy**: Trend + Momentum alignment with fast EMAs
+📖 Full docs: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
-## Docs
+## 📦 Tech Stack
 
-| Document | Description |
-|----------|-------------|
-| [WORKFLOW](docs/WORKFLOW.md) | Trading cycle flow |
-| [DATA_SOURCES](docs/DATA_SOURCES.md) | All free data sources |
-| [AI_DECISION_LOGIC](docs/AI_DECISION_LOGIC.md) | Decision framework |
-| [DEPLOYMENT](docs/DEPLOYMENT.md) | VPS setup guide |
-| [NEWS_SCRAPING](docs/NEWS_SCRAPING.md) | Scraping guide & recommendations |
-| [DATABASE_SCHEMA](docs/DATABASE_SCHEMA.md) | Database tables |
+| Component | Technology |
+|-----------|-----------|
+| Language | Python 3.11+ |
+| Exchange | Binance Futures REST (self-written) |
+| AI | Groq/DeepSeek/Gemini/Claude/Kimi |
+| Indicators | pandas + numpy (self-written) |
+| Database | Supabase (PostgreSQL) |
+| Notifications | Telegram + Discord |
+| Logging | Loguru |
 
-## Config
+## 🔒 Security
 
-See `.env.example` for all available settings.
+- No external exchange libraries (self-written HMAC-signed API)
+- API keys stored in `.env` (gitignored)
+- Minimal trusted dependencies only
+- Testnet mode by default
+
+## 📄 License
+
+MIT
