@@ -142,7 +142,7 @@ class BinanceTrader:
         leverage: int,
         margin: float
     ) -> Dict[str, Any]:
-        """Open a new position"""
+        """Open a new position — captures commission details"""
         loop = asyncio.get_event_loop()
         
         try:
@@ -183,17 +183,28 @@ class BinanceTrader:
                 )
             )
             
-            logger.info(f"✅ Opened {side} {symbol}: qty={quantity}, price=${price:,.2f}")
+            # Get fill details (commission, avg price)
+            fill_info = await self._get_order_fill_details(symbol, order.get('orderId'))
+            
+            logger.info(f"✅ Opened {side} {symbol}: qty={quantity}, price=${price:,.2f}, fee=${fill_info.get('commission', 0):.4f}")
             
             return {
                 "success": True,
                 "message": f"Opened {side} position",
                 "symbol": symbol,
                 "order_id": order.get('orderId'),
+                "client_order_id": order.get('clientOrderId', ''),
                 "quantity": quantity,
                 "price": price,
                 "leverage": leverage,
                 "margin": margin,
+                # Fill details
+                "avg_price": fill_info.get('avg_price', price),
+                "executed_qty": fill_info.get('executed_qty', quantity),
+                "cum_quote": fill_info.get('cum_quote', 0),
+                "commission": fill_info.get('commission', 0),
+                "commission_asset": fill_info.get('commission_asset', 'USDT'),
+                "raw_order": order,
                 "executed_at": datetime.utcnow().isoformat() + "Z"
             }
             
@@ -206,7 +217,7 @@ class BinanceTrader:
             }
     
     async def _close_position(self, symbol: str) -> Dict[str, Any]:
-        """Close an existing position"""
+        """Close an existing position — captures exit details + commission"""
         loop = asyncio.get_event_loop()
         
         try:
@@ -252,18 +263,36 @@ class BinanceTrader:
                 )
             )
             
+            # Get fill details (commission, avg exit price)
+            fill_info = await self._get_order_fill_details(symbol, order.get('orderId'))
+            
             pnl = float(sym_pos['unRealizedProfit'])
             entry = float(sym_pos['entryPrice'])
+            mark = float(sym_pos['markPrice'])
+            leverage = int(sym_pos.get('leverage', 20))
+            margin = float(sym_pos.get('initialMargin', 0))
             
-            logger.info(f"✅ Closed {symbol}: PnL=${pnl:,.4f}")
+            logger.info(f"✅ Closed {symbol}: PnL=${pnl:,.4f}, fee=${fill_info.get('commission', 0):.4f}")
             
             return {
                 "success": True,
                 "message": "Position closed",
                 "symbol": symbol,
                 "order_id": order.get('orderId'),
+                "client_order_id": order.get('clientOrderId', ''),
                 "closed_pnl": pnl,
                 "entry_price": entry,
+                "exit_price": fill_info.get('avg_price', mark),
+                "quantity": close_qty,
+                "leverage": leverage,
+                "margin": margin,
+                # Fill details
+                "avg_price": fill_info.get('avg_price', mark),
+                "executed_qty": fill_info.get('executed_qty', close_qty),
+                "cum_quote": fill_info.get('cum_quote', 0),
+                "commission": fill_info.get('commission', 0),
+                "commission_asset": fill_info.get('commission_asset', 'USDT'),
+                "raw_order": order,
                 "executed_at": datetime.utcnow().isoformat() + "Z"
             }
             
@@ -274,6 +303,48 @@ class BinanceTrader:
                 "message": str(e),
                 "symbol": symbol
             }
+    
+    async def _get_order_fill_details(self, symbol: str, order_id: int) -> Dict:
+        """Get commission and fill details from a completed order"""
+        try:
+            loop = asyncio.get_event_loop()
+            
+            # Get order trades (fills)
+            trades = await loop.run_in_executor(
+                None,
+                lambda: self.client.futures_account_trades(symbol=symbol, limit=5)
+            )
+            
+            # Find trades matching this order
+            order_trades = [t for t in trades if t.get('orderId') == order_id]
+            
+            if order_trades:
+                total_commission = sum(float(t.get('commission', 0)) for t in order_trades)
+                commission_asset = order_trades[0].get('commissionAsset', 'USDT')
+                
+                # Weighted avg price
+                total_qty = sum(float(t['qty']) for t in order_trades)
+                avg_price = sum(float(t['price']) * float(t['qty']) for t in order_trades) / total_qty if total_qty > 0 else 0
+                
+                return {
+                    "commission": total_commission,
+                    "commission_asset": commission_asset,
+                    "avg_price": avg_price,
+                    "executed_qty": total_qty,
+                    "cum_quote": sum(float(t.get('quoteQty', 0)) for t in order_trades),
+                    "fills_count": len(order_trades)
+                }
+        except Exception as e:
+            logger.debug(f"Could not get fill details: {e}")
+        
+        return {
+            "commission": 0,
+            "commission_asset": "USDT",
+            "avg_price": 0,
+            "executed_qty": 0,
+            "cum_quote": 0,
+            "fills_count": 0
+        }
     
     def _calculate_quantity(
         self, 

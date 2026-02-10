@@ -57,7 +57,7 @@ class SupabaseClient:
         status: str = "COMPLETED",
         summary: Dict = None
     ) -> Optional[Dict]:
-        """Mark cycle as completed"""
+        """Mark cycle as completed with expanded data"""
         if not self.enabled:
             return None
             
@@ -66,8 +66,18 @@ class SupabaseClient:
                 "completed_at": datetime.utcnow().isoformat(),
                 "status": status,
                 "decisions_count": summary.get('decisions_count', 0) if summary else 0,
-                "trades_executed": summary.get('trades_executed', 0) if summary else 0
+                "trades_executed": summary.get('trades_executed', 0) if summary else 0,
+                "ai_model": summary.get('ai_model') if summary else None,
+                "ai_confidence": summary.get('ai_confidence') if summary else None,
+                "market_outlook": summary.get('market_outlook') if summary else None,
+                "total_cycle_ms": summary.get('total_cycle_ms') if summary else None,
+                "balance_usdt": summary.get('balance_usdt') if summary else None,
+                "available_margin": summary.get('available_margin') if summary else None,
+                "open_positions_count": summary.get('open_positions_count', 0) if summary else 0,
             }
+            
+            # Remove None values
+            data = {k: v for k, v in data.items() if v is not None}
             
             result = self.client.table("trading_cycles")\
                 .update(data)\
@@ -153,27 +163,52 @@ class SupabaseClient:
         result: Dict,
         reasoning: str = ""
     ) -> bool:
-        """Store executed trade"""
+        """Store executed trade with fees and PnL details"""
         if not self.enabled:
             return False
             
         try:
             data = {
-                "cycle_id": cycle_id,
-                "action": action,
                 "symbol": symbol,
                 "side": "LONG" if action == "OPEN_LONG" else "SHORT" if action == "OPEN_SHORT" else "CLOSE",
-                "entry_price": result.get('price', 0),
-                "quantity": result.get('quantity', 0),
                 "leverage": result.get('leverage', 0),
-                "margin": result.get('margin', 0),
-                "pnl_usdt": result.get('closed_pnl', 0),
-                "reasoning": reasoning[:500],
-                "order_id": str(result.get('order_id', '')),
-                "success": result.get('success', False),
-                "error_message": result.get('message', '') if not result.get('success') else None,
-                "executed_at": result.get('executed_at', datetime.utcnow().isoformat())
+                "margin_usdt": result.get('margin', 0),
+                "status": "OPEN" if action in ('OPEN_LONG', 'OPEN_SHORT') else "CLOSED",
             }
+            
+            if action in ('OPEN_LONG', 'OPEN_SHORT'):
+                data.update({
+                    "cycle_id_open": cycle_id,
+                    "entry_price": result.get('avg_price') or result.get('price', 0),
+                    "entry_qty": result.get('executed_qty') or result.get('quantity', 0),
+                    "entry_value": result.get('cum_quote', 0),
+                    "order_id_open": result.get('order_id'),
+                    "commission_open": result.get('commission', 0),
+                    "commission_asset": result.get('commission_asset', 'USDT'),
+                    "reasoning_open": reasoning[:500],
+                    "opened_at": result.get('executed_at', datetime.utcnow().isoformat()),
+                })
+            elif action == 'CLOSE':
+                data.update({
+                    "cycle_id_close": cycle_id,
+                    "exit_price": result.get('avg_price') or result.get('exit_price', 0),
+                    "exit_qty": result.get('executed_qty') or result.get('quantity', 0),
+                    "exit_value": result.get('cum_quote', 0),
+                    "order_id_close": result.get('order_id'),
+                    "commission_close": result.get('commission', 0),
+                    "gross_pnl": result.get('closed_pnl', 0),
+                    "reasoning_close": reasoning[:500],
+                    "closed_at": result.get('executed_at', datetime.utcnow().isoformat()),
+                    "is_winner": (result.get('closed_pnl', 0) or 0) > 0,
+                })
+                # Calculate net PnL
+                gross = result.get('closed_pnl', 0) or 0
+                commission = result.get('commission', 0) or 0
+                net = gross - commission
+                data['net_pnl'] = net
+                margin = result.get('margin', 0)
+                data['roi_on_margin'] = (net / margin * 100) if margin > 0 else 0
+                data['is_winner'] = net > 0
             
             self.client.table("trades").insert(data).execute()
             logger.debug(f"Stored trade: {action} {symbol}")
@@ -181,6 +216,226 @@ class SupabaseClient:
             
         except Exception as e:
             logger.error(f"Failed to store trade: {e}")
+            return False
+    
+    # ==========================================
+    # MARKET SNAPSHOTS
+    # ==========================================
+    
+    async def store_market_snapshot(
+        self, 
+        cycle_id: str, 
+        market_data: Dict[str, Any]
+    ) -> bool:
+        """Store per-coin market data from aggregator output"""
+        if not self.enabled:
+            return False
+            
+        try:
+            records = []
+            for symbol, data in market_data.items():
+                tech = data.get('technical', {})
+                ls = data.get('long_short_ratio', {})
+                
+                record = {
+                    "cycle_id": cycle_id,
+                    "symbol": symbol,
+                    "current_price": data.get('price', 0),
+                    # EMAs
+                    "ema9": tech.get('ema_9'),
+                    "ema21": tech.get('ema_21'),
+                    "ema20": tech.get('ema_20'),
+                    "ema50": tech.get('ema_50'),
+                    "ema55": tech.get('ema_55'),
+                    "ema200": tech.get('ema_200'),
+                    # RSI
+                    "rsi": tech.get('rsi_14'),
+                    "rsi_7": tech.get('rsi_7'),
+                    "rsi_ema": tech.get('rsi_ema'),
+                    # MACD
+                    "macd": tech.get('macd_line'),
+                    "macd_signal": tech.get('macd_signal'),
+                    "macd_histogram": tech.get('macd_histogram'),
+                    # ATR
+                    "atr": tech.get('atr_14'),
+                    "atr_percent": tech.get('atr_percent'),
+                    "volatility": tech.get('volatility'),
+                    # Bollinger
+                    "bb_upper": tech.get('bollinger', {}).get('upper'),
+                    "bb_middle": tech.get('bollinger', {}).get('middle'),
+                    "bb_lower": tech.get('bollinger', {}).get('lower'),
+                    # Price range
+                    "recent_high": tech.get('recent_high'),
+                    "recent_low": tech.get('recent_low'),
+                    "day_high": tech.get('day_high'),
+                    "day_low": tech.get('day_low'),
+                    # Volume
+                    "volume_24h": data.get('volume_24h'),
+                    "quote_volume_24h": data.get('quote_volume_24h'),
+                    "volume_ratio": tech.get('volume_ratio'),
+                    "price_change_24h": data.get('price_change_24h'),
+                    # Futures
+                    "funding_rate": data.get('funding_rate'),
+                    "long_ratio": ls.get('long_ratio'),
+                    "short_ratio": ls.get('short_ratio'),
+                    "long_short_ratio": ls.get('long_short_ratio'),
+                    # Signals
+                    "trend": tech.get('trend'),
+                    "momentum": tech.get('momentum'),
+                    "combined_score": data.get('combined_score'),
+                    "combined_signal": data.get('combined_signal'),
+                    "signal_agreement": data.get('signal_agreement'),
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+                
+                # Remove None values to avoid DB errors
+                record = {k: v for k, v in record.items() if v is not None}
+                records.append(record)
+            
+            if records:
+                self.client.table("market_snapshots").insert(records).execute()
+                logger.debug(f"Stored {len(records)} market snapshots for cycle: {cycle_id}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store market snapshots: {e}")
+            return False
+    
+    # ==========================================
+    # ORDERS (raw Binance order data)
+    # ==========================================
+    
+    async def store_order(
+        self, 
+        cycle_id: str, 
+        result: Dict,
+        trade_id: int = None
+    ) -> bool:
+        """Store raw Binance order data"""
+        if not self.enabled:
+            return False
+            
+        try:
+            raw_order = result.get('raw_order', {})
+            
+            data = {
+                "cycle_id": cycle_id,
+                "trade_id": trade_id,
+                "order_id": result.get('order_id'),
+                "client_order_id": result.get('client_order_id', ''),
+                "symbol": result.get('symbol', ''),
+                "side": raw_order.get('side', ''),
+                "order_type": raw_order.get('type', 'MARKET'),
+                "quantity": result.get('quantity', 0),
+                "executed_qty": result.get('executed_qty', 0),
+                "avg_price": result.get('avg_price', 0),
+                "cum_quote": result.get('cum_quote', 0),
+                "commission": result.get('commission', 0),
+                "commission_asset": result.get('commission_asset', 'USDT'),
+                "status": raw_order.get('status', 'FILLED'),
+                "reduce_only": raw_order.get('reduceOnly', False),
+                "raw_response": json.dumps(raw_order) if raw_order else None,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            
+            self.client.table("orders").insert(data).execute()
+            logger.debug(f"Stored order: {result.get('order_id')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store order: {e}")
+            return False
+    
+    # ==========================================
+    # ACCOUNT SNAPSHOTS
+    # ==========================================
+    
+    async def store_account_snapshot(
+        self, 
+        cycle_id: str, 
+        balance: Dict,
+        positions: list,
+        realized_pnl_today: float = 0,
+        total_commission_today: float = 0,
+        trades_today: int = 0
+    ) -> bool:
+        """Store account balance + equity snapshot"""
+        if not self.enabled:
+            return False
+            
+        try:
+            total_unrealized = sum(p.get('unrealizedPnl', 0) for p in positions)
+            total_margin = sum(p.get('initialMargin', 0) for p in positions)
+            total_balance = balance.get('total', 0)
+            
+            data = {
+                "cycle_id": cycle_id,
+                "total_balance": total_balance,
+                "available_balance": balance.get('free', 0),
+                "total_margin_used": total_margin,
+                "total_unrealized_pnl": total_unrealized,
+                "total_position_value": sum(
+                    p.get('positionAmt', 0) * p.get('markPrice', 0) 
+                    for p in positions
+                ),
+                "open_positions_count": len(positions),
+                "equity": total_balance + total_unrealized,
+                "margin_ratio": (total_margin / (total_balance + total_unrealized) * 100) 
+                    if (total_balance + total_unrealized) > 0 else 0,
+                "realized_pnl_today": realized_pnl_today,
+                "total_commission_today": total_commission_today,
+                "trades_today": trades_today,
+                "created_at": datetime.utcnow().isoformat(),
+            }
+            
+            self.client.table("account_snapshots").insert(data).execute()
+            logger.debug(f"Stored account snapshot for cycle: {cycle_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store account snapshot: {e}")
+            return False
+    
+    # ==========================================
+    # POSITIONS HISTORY
+    # ==========================================
+    
+    async def store_positions_history(
+        self, 
+        cycle_id: str, 
+        positions: list
+    ) -> bool:
+        """Snapshot all open positions for this cycle"""
+        if not self.enabled or not positions:
+            return False
+            
+        try:
+            records = []
+            for pos in positions:
+                record = {
+                    "cycle_id": cycle_id,
+                    "symbol": pos.get('symbol', ''),
+                    "side": pos.get('side', '').upper(),
+                    "position_amt": pos.get('positionAmt', 0),
+                    "entry_price": pos.get('entryPrice', 0),
+                    "mark_price": pos.get('markPrice', 0),
+                    "leverage": pos.get('leverage', 0),
+                    "initial_margin": pos.get('initialMargin', 0),
+                    "unrealized_pnl": pos.get('unrealizedPnl', 0),
+                    "unrealized_pnl_percent": pos.get('percentage', 0),
+                    "created_at": datetime.utcnow().isoformat(),
+                }
+                records.append(record)
+            
+            if records:
+                self.client.table("positions_history").insert(records).execute()
+                logger.debug(f"Stored {len(records)} position snapshots")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to store positions history: {e}")
             return False
     
     # ==========================================

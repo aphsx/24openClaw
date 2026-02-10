@@ -26,15 +26,23 @@ class DataAggregator:
         """Aggregate all data into unified format"""
         logger.info("📊 Aggregating all data sources...")
 
-        # Build funding rate lookup from raw binance data
+        # Build lookup from raw binance data
         funding_lookup = {}
         ls_ratio_lookup = {}
+        day_hl_lookup = {}  # day_high / day_low from 24h stats
         for coin in binance_raw.get('coins', []):
             symbol = coin.get('symbol', '')
             funding_lookup[symbol] = coin.get('funding_rate', 0.0)
             ls_ratio_lookup[symbol] = coin.get('long_short_ratio', {
                 "long_ratio": 0.5, "short_ratio": 0.5, "long_short_ratio": 1.0
             })
+            day_hl_lookup[symbol] = {
+                "day_high": coin.get('high_24h', 0),
+                "day_low": coin.get('low_24h', 0),
+                "volume_24h": coin.get('volume_24h', 0),
+                "quote_volume_24h": coin.get('quote_volume_24h', 0),
+                "price_change_24h": coin.get('price_change_24h', 0),
+            }
 
         result = {
             "cycle_id": cycle_id,
@@ -83,13 +91,24 @@ class DataAggregator:
                     "ema_9": indicators.get('ema_9', 0),
                     "ema_21": indicators.get('ema_21', 0),
                     "ema_55": indicators.get('ema_55', 0),
-                    # RSI - both fast and standard
+                    # RSI
                     "rsi_7": indicators.get('rsi_7', 50),
                     "rsi_14": indicators.get('rsi_14', 50),
+                    "rsi_ema": indicators.get('rsi_ema', 50),
+                    # MACD
                     "macd_histogram": indicators.get('macd', {}).get('histogram', 0),
+                    "macd_line": indicators.get('macd', {}).get('macd_line', 0),
+                    "macd_signal": indicators.get('macd', {}).get('signal_line', 0),
+                    # Volume & ATR
                     "volume_ratio": indicators.get('volume_ratio', 1.0),
                     "atr_14": indicators.get('atr_14', 0),
+                    "atr_percent": indicators.get('atr_percent', 0),
                     "bollinger": indicators.get('bollinger', {}),
+                    # Price range
+                    "recent_high": indicators.get('recent_high', 0),
+                    "recent_low": indicators.get('recent_low', 0),
+                    "day_high": indicators.get('day_high', day_hl_lookup.get(symbol, {}).get('day_high', 0)),
+                    "day_low": indicators.get('day_low', day_hl_lookup.get(symbol, {}).get('day_low', 0)),
                 },
                 "sentiment": {
                     "score": coin_sentiment.get('score', 50),
@@ -100,6 +119,10 @@ class DataAggregator:
                 # Futures-specific data
                 "funding_rate": funding_lookup.get(symbol, 0.0),
                 "long_short_ratio": ls_ratio_lookup.get(symbol, {}),
+                # Volume (24h from Binance)
+                "volume_24h": day_hl_lookup.get(symbol, {}).get('volume_24h', 0),
+                "quote_volume_24h": day_hl_lookup.get(symbol, {}).get('quote_volume_24h', 0),
+                "price_change_24h": day_hl_lookup.get(symbol, {}).get('price_change_24h', 0),
                 # Combined scores
                 "combined_score": combined['score'],
                 "combined_signal": combined['signal'],
