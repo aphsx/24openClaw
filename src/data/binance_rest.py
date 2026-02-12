@@ -134,6 +134,100 @@ class BinanceREST:
         usdt_pairs.sort(key=lambda x: abs(float(x.get("priceChangePercent", 0))), reverse=True)
         return usdt_pairs[:20]
 
+    async def get_taker_buy_sell_ratio(self, symbol: str, period: str = "5m", limit: int = 3) -> Any:
+        """Get taker buy/sell volume ratio."""
+        return await self._request("GET", "/futures/data/takerlongshortRatio", {
+            "symbol": symbol, "period": period, "limit": limit,
+        })
+
+    async def get_top_trader_account_ratio(self, symbol: str, period: str = "5m", limit: int = 3) -> Any:
+        """Get top trader long/short ratio (accounts)."""
+        return await self._request("GET", "/futures/data/topLongShortAccountRatio", {
+            "symbol": symbol, "period": period, "limit": limit,
+        })
+
+    async def get_top_trader_position_ratio(self, symbol: str, period: str = "5m", limit: int = 3) -> Any:
+        """Get top trader long/short ratio (positions)."""
+        return await self._request("GET", "/futures/data/topLongShortPositionRatio", {
+            "symbol": symbol, "period": period, "limit": limit,
+        })
+
+    async def get_order_book_depth(self, symbol: str, limit: int = 20) -> Any:
+        """Get order book depth."""
+        depth = await self._request("GET", "/fapi/v1/depth", {
+            "symbol": symbol, "limit": limit,
+        })
+        if not depth:
+            return None
+            
+        # Summarize depth immediately
+        try:
+            return self._summarize_depth(
+                depth.get("bids", []), 
+                depth.get("asks", []), 
+                # We need current price to detect walls relative to price, 
+                # but depth data implies price. 
+                # Let's take the mid price from the first bid/ask.
+                None 
+            )
+        except Exception as e:
+            log.error(f"Error summarizing depth for {symbol}: {e}")
+            return depth
+
+    def _summarize_depth(self, bids: list, asks: list, current_price: float = None) -> dict:
+        """Analyze order book for whale walls and imbalances."""
+        if not bids or not asks:
+            return {"bid_ask_ratio": 1.0, "whale_walls": []}
+
+        # Convert to float
+        # bids/asks are [[price, qty], ...]
+        bids = [[float(p), float(q)] for p, q in bids]
+        asks = [[float(p), float(q)] for p, q in asks]
+
+        if current_price is None:
+             # Estimate current price as mid of best bid/ask
+            best_bid = bids[0][0]
+            best_ask = asks[0][0]
+            current_price = (best_bid + best_ask) / 2
+
+        # Filter within 1% range
+        range_pct = 0.01
+        lower_bound = current_price * (1 - range_pct)
+        upper_bound = current_price * (1 + range_pct)
+
+        relevant_bids = [b for b in bids if b[0] >= lower_bound]
+        relevant_asks = [a for a in asks if a[0] <= upper_bound]
+
+        if not relevant_bids: relevant_bids = bids # Fallback
+        if not relevant_asks: relevant_asks = asks # Fallback
+
+        bid_vol = sum(b[1] for b in relevant_bids)
+        ask_vol = sum(a[1] for a in relevant_asks)
+
+        bid_ask_ratio = bid_vol / ask_vol if ask_vol > 0 else 10.0 # Cap at 10 if no asks
+
+        # Detect whale walls (orders > 5x average size in this snapshot)
+        all_sizes = [b[1] for b in relevant_bids] + [a[1] for a in relevant_asks]
+        avg_size = sum(all_sizes) / len(all_sizes) if all_sizes else 0
+        
+        whale_walls = []
+        threshold = avg_size * 5
+
+        for p, q in relevant_bids:
+            if q > threshold and q > 0:
+                whale_walls.append(f"Bid Wall at {p:.2f} ({q:.1f})")
+        
+        for p, q in relevant_asks:
+            if q > threshold and q > 0:
+                whale_walls.append(f"Ask Wall at {p:.2f} ({q:.1f})")
+
+        return {
+            "bid_ask_ratio": round(bid_ask_ratio, 2),
+            "bid_volume": round(bid_vol, 2),
+            "ask_volume": round(ask_vol, 2),
+            "whale_walls": whale_walls[:5] # Top 5 walls
+        }
+
     # ============================================================
     # SIGNED ENDPOINTS (account operations)
     # ============================================================

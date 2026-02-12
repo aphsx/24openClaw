@@ -42,8 +42,15 @@ class CycleCache:
         # Market data
         self.funding_rates: Dict[str, float] = {}
         self.long_short_ratios: Dict[str, float] = {}
+        self.open_interest: Dict[str, float] = {}
         self.volume_24h: Dict[str, float] = {}
         self.price_changes: Dict[str, Dict[str, float]] = {}
+
+        # Whale Data
+        self.taker_buy_sell: Dict[str, dict] = {}        # {symbol: {ratio, buy_vol, sell_vol}}
+        self.top_trader_accounts: Dict[str, dict] = {}   # {symbol: {long_pct, short_pct}}
+        self.top_trader_positions: Dict[str, dict] = {}  # {symbol: {long_pct, short_pct}}
+        self.order_book_imbalance: Dict[str, dict] = {}  # {symbol: {bid_ask_ratio, whale_walls}}
 
         # AI decision
         self.ai_input_json: dict = {}
@@ -68,11 +75,40 @@ class CycleCache:
 
     def get_symbol_data(self, symbol: str) -> Dict[str, Any]:
         """Get all data for a symbol as a dict (for AI input)."""
+        # Build whale activity
+        whale_activity = {}
+        
+        # Taker buy/sell
+        taker = self.taker_buy_sell.get(symbol, {})
+        if taker:
+            whale_activity["taker_buy_sell_ratio"] = taker.get("buySellRatio")
+            
+        # Top traders
+        top_acc = self.top_trader_accounts.get(symbol, {})
+        if top_acc:
+            whale_activity["top_trader_long_pct"] = top_acc.get("longAccount")
+            whale_activity["top_trader_short_pct"] = top_acc.get("shortAccount")
+            
+        # Top positions (optional, but requested)
+        # User example showed top_trader_long_pct which usually refers to accounts or positions, 
+        # I'll stick to accounts as primary but can add positions if needed. 
+        # Actually user plan says: "top_trader_long_pct" in example. 
+        # Let's include everything available.
+        
+        whale_activity["open_interest_usdt"] = self.open_interest.get(symbol, 0)
+        
+        # Order book
+        book = self.order_book_imbalance.get(symbol, {})
+        if book:
+            whale_activity["order_book_bid_ask_ratio"] = book.get("bid_ask_ratio")
+            whale_activity["whale_walls"] = book.get("whale_walls", [])
+
         return {
             "price": self.prices.get(symbol, 0),
             "indicators_5m": self.indicators.get(symbol, {}).get("5m", {}),
             "indicators_15m": self.indicators.get(symbol, {}).get("15m", {}),
             "indicators_1h": self.indicators.get(symbol, {}).get("1h", {}),
+            "indicators_4h": self.indicators.get(symbol, {}).get("4h", {}),
             "regime": self.regimes.get(symbol, "unknown"),
             "funding_rate": self.funding_rates.get(symbol, 0),
             "long_short_ratio": self.long_short_ratios.get(symbol, 0),
@@ -80,6 +116,7 @@ class CycleCache:
             "price_change_5m_pct": self.price_changes.get(symbol, {}).get("5m", 0),
             "price_change_1h_pct": self.price_changes.get(symbol, {}).get("1h", 0),
             "price_change_24h_pct": self.price_changes.get(symbol, {}).get("24h", 0),
+            "whale_activity": whale_activity
         }
 
     def build_ai_input(self, risk_config: dict) -> dict:

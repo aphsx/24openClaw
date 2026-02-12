@@ -22,3 +22,6 @@ loguru>=0.7.0
 
 # Environment
 python-dotenv>=1.0.0
+
+# News Parsing
+feedparser>=6.0.0

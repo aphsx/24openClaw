@@ -83,9 +83,10 @@ class Engine:
             chart_task = self._fetch_all_charts(symbols)
             news_task = self._fetch_news_with_timeout()
             market_task = self._fetch_market_data(symbols)
+            whale_task = self._fetch_whale_data(symbols)
 
-            chart_result, news_result, market_result = await asyncio.gather(
-                chart_task, news_task, market_task,
+            chart_result, news_result, market_result, whale_result = await asyncio.gather(
+                chart_task, news_task, market_task, whale_task,
                 return_exceptions=True,
             )
 
@@ -94,6 +95,8 @@ class Engine:
                 log.error(f"Chart fetch failed: {chart_result}")
             if isinstance(news_result, Exception):
                 log.warning(f"News fetch failed: {news_result}")
+            if isinstance(whale_result, Exception):
+                log.warning(f"Whale data fetch failed: {whale_result}")
 
             self.cache.set_timing("data_fetch", int((time.time() - t1) * 1000))
 
@@ -106,7 +109,8 @@ class Engine:
             # ===== Calculate Indicators + Regime =====
             t2 = time.time()
             for symbol in symbols:
-                for tf in ["5m", "15m", "1h"]:
+                # Calculate for all TFs including macro
+                for tf in [settings.TF_PRIMARY, settings.TF_SECONDARY, settings.TF_TERTIARY, settings.TF_MACRO]:
                     df = self.candles.get(symbol, tf)
                     if df is not None:
                         ind = indicators.calculate_all(df)
@@ -190,6 +194,7 @@ class Engine:
             settings.TF_PRIMARY: settings.CANDLES_PRIMARY,
             settings.TF_SECONDARY: settings.CANDLES_SECONDARY,
             settings.TF_TERTIARY: settings.CANDLES_TERTIARY,
+            settings.TF_MACRO: settings.CANDLES_MACRO,
         }
         for symbol in symbols:
             for tf, limit in tf_map.items():
@@ -254,6 +259,46 @@ class Engine:
                 }
         except Exception as e:
             log.warning(f"Market data failed for {symbol}: {e}")
+
+    async def _fetch_whale_data(self, symbols):
+        """Fetch whale data (taker ratio, top traders, depth) for all symbols."""
+        tasks = []
+        for symbol in symbols:
+            tasks.append(self._fetch_single_whale_data(symbol))
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _fetch_single_whale_data(self, symbol: str):
+        """Fetch all whale metrics for one symbol."""
+        try:
+            # Parallel fetch within symbol
+            taker, accounts, positions, depth, oi = await asyncio.gather(
+                self.client.get_taker_buy_sell_ratio(symbol),
+                self.client.get_top_trader_account_ratio(symbol),
+                self.client.get_top_trader_position_ratio(symbol),
+                self.client.get_order_book_depth(symbol),
+                self.client.get_open_interest(symbol),
+                return_exceptions=True
+            )
+            
+            # Store in cache
+            if not isinstance(taker, Exception) and taker and isinstance(taker, list):
+                 self.cache.taker_buy_sell[symbol] = taker[-1]
+
+            if not isinstance(accounts, Exception) and accounts and isinstance(accounts, list):
+                 self.cache.top_trader_accounts[symbol] = accounts[-1]
+
+            if not isinstance(positions, Exception) and positions and isinstance(positions, list):
+                 self.cache.top_trader_positions[symbol] = positions[-1]
+
+            if not isinstance(depth, Exception) and depth:
+                 self.cache.order_book_imbalance[symbol] = depth
+
+            if not isinstance(oi, Exception) and oi:
+                 val = oi.get("openInterest", 0)
+                 self.cache.open_interest[symbol] = float(val)
+
+        except Exception as e:
+             log.warning(f"Whale data fetch failed for {symbol}: {e}")
 
     async def _fetch_fear_greed(self):
         """Fetch Fear & Greed Index."""

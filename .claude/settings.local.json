@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:developers.binance.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:dzone.com)",
+      "WebFetch(domain:rjjavangula.medium.com)"
+    ]
+  }
+}

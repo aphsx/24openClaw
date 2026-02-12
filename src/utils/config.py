@@ -49,9 +49,12 @@ class Settings(BaseSettings):
     TF_PRIMARY: str = "5m"
     TF_SECONDARY: str = "15m"
     TF_TERTIARY: str = "1h"
-    CANDLES_PRIMARY: int = 200
-    CANDLES_SECONDARY: int = 100
-    CANDLES_TERTIARY: int = 48
+    TF_MACRO: str = "4h"
+
+    CANDLES_PRIMARY: int = 100    # Reduced from 200
+    CANDLES_SECONDARY: int = 50   # Reduced from 100
+    CANDLES_TERTIARY: int = 24    # Reduced from 48
+    CANDLES_MACRO: int = 12       # 2 days (4h * 12)
 
     # === News ===
     CRYPTOPANIC_API_KEY: str = ""  # free tier key

@@ -39,12 +39,15 @@ class OrderManager:
 
             try:
                 if act in ("OPEN_LONG", "OPEN_SHORT"):
+                    sl_price = action.get("sl_price")
+                    tp_price = action.get("tp_price")
                     result = await self._open_position(
                         symbol=symbol,
                         side="LONG" if act == "OPEN_LONG" else "SHORT",
                         margin_usdt=float(action.get("margin_usdt", settings.MIN_ORDER_USDT)),
-                        confidence=confidence,
                         reason=action.get("reason", ""),
+                        sl_price=sl_price,
+                        tp_price=tp_price,
                     )
                     if result:
                         executed.append(result)
@@ -64,7 +67,8 @@ class OrderManager:
 
     async def _open_position(
         self, symbol: str, side: str, margin_usdt: float,
-        confidence: int = 0, reason: str = "",
+        reason: str = "", sl_price: float = None, tp_price: float = None,
+        confidence: int = 0
     ) -> Optional[dict]:
         """Open a new position with safety SL/TP."""
         # Ensure leverage is set
@@ -115,8 +119,8 @@ class OrderManager:
 
         log.info(f"Opened {side} {symbol}: qty={quantity} price={fill_price} margin={margin_usdt}")
 
-        # Place safety SL/TP
-        await self._place_safety_orders(symbol, side, fill_price, quantity)
+        # Place SL/TP (AI suggestions or safety fallback)
+        await self._place_safety_orders(symbol, side, fill_price, quantity, sl_price, tp_price)
 
         # Build trade record
         trade = {
@@ -205,38 +209,79 @@ class OrderManager:
         }
         return trade
 
-    async def _place_safety_orders(self, symbol: str, side: str, entry_price: float, quantity: float):
-        """Place safety SL and TP orders (fallback for between cycles)."""
+    async def _place_safety_orders(
+        self, symbol: str, side: str, entry_price: float, quantity: float,
+        ai_sl: float = None, ai_tp: float = None
+    ):
+        """Place SL/TP orders using AI suggestions or safety defaults."""
         try:
-            price_precision = (await self._get_precision(symbol)).get("price_precision", 2)
+            precision_data = await self._get_precision(symbol)
+            price_precision = precision_data.get("price_precision", 2)
 
+            # Determine side for SL/TP orders
+            # LONG position -> SELL to close
+            # SHORT position -> BUY to close
+            close_side = "SELL" if side == "LONG" else "BUY"
+
+            # Default Safety Fallback
             if side == "LONG":
-                sl_price = round(entry_price * (1 - settings.SAFETY_SL_PCT / 100), price_precision)
-                tp_price = round(entry_price * (1 + settings.SAFETY_TP_PCT / 100), price_precision)
-                sl_side = "SELL"
+                safety_sl = entry_price * (1 - settings.SAFETY_SL_PCT / 100)
+                safety_tp = entry_price * (1 + settings.SAFETY_TP_PCT / 100)
             else:
-                sl_price = round(entry_price * (1 + settings.SAFETY_SL_PCT / 100), price_precision)
-                tp_price = round(entry_price * (1 - settings.SAFETY_TP_PCT / 100), price_precision)
-                sl_side = "BUY"
+                safety_sl = entry_price * (1 + settings.SAFETY_SL_PCT / 100)
+                safety_tp = entry_price * (1 - settings.SAFETY_TP_PCT / 100)
 
-            # Stop Loss
+            final_sl = safety_sl
+            final_tp = safety_tp
+
+            # Validate AI suggestions
+            if ai_sl and ai_tp:
+                try:
+                    ai_sl = float(ai_sl)
+                    ai_tp = float(ai_tp)
+                    
+                    if side == "LONG":
+                        # Valid LONG SL: must be below entry, but not too far (safety limit)
+                        # Valid LONG TP: must be above entry
+                        if ai_sl < entry_price and ai_tp > entry_price:
+                            # Enforce max loss limit (SL cannot be lower than safety_sl)
+                            # logical: safety_sl is lower bound. ai_sl must be >= safety_sl
+                            final_sl = max(ai_sl, safety_sl)
+                            final_tp = ai_tp # Allow unlimited upside
+                    else:
+                        # Valid SHORT SL: must be above entry
+                        # Valid SHORT TP: must be below entry
+                        if ai_sl > entry_price and ai_tp < entry_price:
+                            # Enforce max loss limit (SL cannot be higher than safety_sl)
+                            # logical: safety_sl is upper bound. ai_sl must be <= safety_sl
+                            final_sl = min(ai_sl, safety_sl)
+                            final_tp = ai_tp
+                            
+                except ValueError:
+                    log.warning(f"Invalid AI SL/TP format for {symbol}, using defaults")
+
+            # Round to precision
+            final_sl = round(final_sl, price_precision)
+            final_tp = round(final_tp, price_precision)
+
+            # Place Stop Loss
             await self.client.place_order(
-                symbol=symbol, side=sl_side, quantity=quantity,
-                order_type="STOP_MARKET", stop_price=sl_price,
+                symbol=symbol, side=close_side, quantity=quantity,
+                order_type="STOP_MARKET", stop_price=final_sl,
                 reduce_only=True,
             )
-            log.info(f"Safety SL set for {symbol}: {sl_price}")
+            log.info(f"SL set for {symbol}: {final_sl}")
 
-            # Take Profit
+            # Place Take Profit
             await self.client.place_order(
-                symbol=symbol, side=sl_side, quantity=quantity,
-                order_type="TAKE_PROFIT_MARKET", stop_price=tp_price,
+                symbol=symbol, side=close_side, quantity=quantity,
+                order_type="TAKE_PROFIT_MARKET", stop_price=final_tp,
                 reduce_only=True,
             )
-            log.info(f"Safety TP set for {symbol}: {tp_price}")
+            log.info(f"TP set for {symbol}: {final_tp}")
 
         except Exception as e:
-            log.error(f"Failed to set safety SL/TP for {symbol}: {e}")
+            log.error(f"Failed to set SL/TP for {symbol}: {e}")
 
     async def _get_precision(self, symbol: str) -> dict:
         """Get and cache symbol precision."""

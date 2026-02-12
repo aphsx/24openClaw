@@ -4,10 +4,13 @@ Free sources: CryptoPanic API, CryptoPanic RSS, free-crypto-news, CoinDesk RSS, 
 """
 import asyncio
 import xml.etree.ElementTree as ET
+import re
+import html
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import aiohttp
+import feedparser
 
 from src.utils.config import settings
 from src.utils.logger import log
@@ -97,25 +100,47 @@ class NewsFetcher:
         """Fetch from CryptoPanic API (free tier)."""
         session = await self._get_session()
         try:
-            params = {"public": "true"}
+            params = {"public": "true", "metadata": "true"}
             if settings.CRYPTOPANIC_API_KEY:
                 params["auth_token"] = settings.CRYPTOPANIC_API_KEY
-
-            url = "https://cryptopanic.com/api/free/v1/posts/"
+            
+            url = "https://cryptopanic.com/api/v1/posts/"
+            
             async with session.get(url, params=params) as resp:
                 if resp.status != 200:
                     return []
                 data = await resp.json()
                 results = data.get("results", [])
-                return [
-                    {
-                        "title": r.get("title", ""),
+                
+                news_list = []
+                for r in results[:10]:
+                    votes = r.get("votes", {})
+                    positive = votes.get("positive", 0)
+                    negative = votes.get("negative", 0)
+                    important = votes.get("important", 0)
+                    sentiment = "Neutral"
+                    if positive > negative and positive > important:
+                        sentiment = "Positive"
+                    elif negative > positive and negative > important:
+                        sentiment = "Negative"
+                    elif important > positive and important > negative:
+                        sentiment = "Important"
+                        
+                    title = r.get("title", "")
+                    desc = ""
+                    if "metadata" in r and "description" in r["metadata"]:
+                        desc = r["metadata"]["description"]
+                    
+                    news_list.append({
+                        "title": title,
+                        "description": desc,
+                        "sentiment": sentiment,
+                        "votes": f"pos:{positive} neg:{negative} imp:{important}",
                         "source": r.get("source", {}).get("title", "CryptoPanic"),
                         "timestamp": r.get("published_at", ""),
                         "url": r.get("url", ""),
-                    }
-                    for r in results[:10]
-                ]
+                    })
+                return news_list
         except Exception as e:
             log.debug(f"CryptoPanic API failed: {e}")
             return []
@@ -145,37 +170,41 @@ class NewsFetcher:
             return []
 
     async def _fetch_rss(self, source_name: str, url: str) -> List[dict]:
-        """Fetch and parse an RSS feed."""
+        """Fetch and parse RSS feed using feedparser."""
         session = await self._get_session()
         try:
             async with session.get(url) as resp:
                 if resp.status != 200:
                     return []
                 text = await resp.text()
-                return self._parse_rss(text, source_name)
+                
+                feed = feedparser.parse(text)
+                results = []
+                
+                for entry in feed.entries[:8]:
+                    title = entry.get("title", "")
+                    link = entry.get("link", "")
+                    desc = entry.get("summary", entry.get("description", ""))
+                    
+                    if desc:
+                        desc = re.sub(r'<[^>]+>', '', desc)
+                        desc = html.unescape(desc).strip()
+                        if len(desc) > 200:
+                            desc = desc[:200] + "..."
+                    
+                    pub_date = entry.get("published", entry.get("updated", ""))
+                    
+                    results.append({
+                        "title": title,
+                        "description": desc or "",
+                        "source": source_name,
+                        "timestamp": pub_date,
+                        "url": link
+                    })
+                return results
+
         except Exception as e:
             log.debug(f"RSS {source_name} failed: {e}")
-            return []
-
-    def _parse_rss(self, xml_text: str, source_name: str) -> List[dict]:
-        """Parse RSS XML into news dicts."""
-        try:
-            root = ET.fromstring(xml_text)
-            items = root.findall(".//item")
-            results = []
-            for item in items[:8]:
-                title = item.findtext("title", "")
-                link = item.findtext("link", "")
-                pub_date = item.findtext("pubDate", "")
-                results.append({
-                    "title": title,
-                    "source": source_name,
-                    "timestamp": pub_date,
-                    "url": link,
-                })
-            return results
-        except ET.ParseError as e:
-            log.debug(f"RSS parse error for {source_name}: {e}")
             return []
 
 
