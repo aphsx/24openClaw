@@ -13,8 +13,9 @@ graph TD
     CRON["⏰ Cron ทุก 5 นาที"] --> S1["🔍 ขั้น 1: เช็ค Balance + Positions<br/>+ ตรวจ SL/TP ที่ trigger ระหว่างรอบ"]
     S1 --> PAR{"⚡ ขั้น 2-4: PARALLEL 3 ทาง"}
     PAR --> S2["📊 ขั้น 2: กราฟ + Indicators<br/>8 เหรียญ x 3 TF"]
-    PAR --> S3["📰 ขั้น 3: ข่าว 20 ข่าว<br/>(async, ข้อมูลใหม่เท่านั้น)"]
+    PAR --> S3["📰 ขั้น 3: ข่าว 20 ข่าว (Feedparser)<br/>Title + Description"]
     PAR --> S4["🌡️ ขั้น 4: Market Data<br/>Funding, L/S, Fear&Greed"]
+    PAR --> S5["🐋 ขั้น 5: Whale Data<br/>Taker Vol, Top Traders, Walls"]
     S2 --> WAIT["📦 ขั้น 5: รวม data<br/>ถ้าข่าวช้า → refresh กราฟใหม่"]
     S3 --> WAIT
     S4 --> WAIT
@@ -34,12 +35,13 @@ graph TD
 
 #### ขั้น 2: กราฟ + Indicators (x3 TF = 3 Timeframe)
 
-**3 Timeframe** = ดูกราฟ 3 ขนาดพร้อมกัน:
+**4 Timeframe** = ดูกราฟ 4 ขนาดพร้อมกัน:
 | TF | 1 แท่ง = | ดึงกี่แท่ง | ครอบคลุม | หน้าที่ |
 |----|---------|----------|----------|--------|
-| **5m** | 5 นาที | 200 | ~16 ชม. | **หลัก** — หา entry/exit |
-| **15m** | 15 นาที | 100 | ~25 ชม. | trend กลาง |
-| **1h** | 1 ชม. | 48 | 2 วัน | trend ใหญ่ |
+| **5m** | 5 นาที | 100 | ~8 ชม. | **หลัก** — หา entry/exit |
+| **15m** | 15 นาที | 50 | ~12 ชม. | trend กลาง |
+| **1h** | 1 ชม. | 24 | 1 วัน | trend ใหญ่ |
+| **4h** | 4 ชม. | 12 | 2 วัน | **Macro** trend |
 
 > 3 TF เหมือนดูแผนที่: 1h=ภาพรวม → 15m=ย่าน → 5m=บ้าน
 
@@ -52,6 +54,11 @@ graph TD
 **Fear & Greed Index** = ดัชนีวัดอารมณ์ตลาด 0-100:
 - 0-24 = Extreme Fear 😱 (อาจเป็นจุดซื้อ) | 75-100 = Extreme Greed 🚀 (อาจเป็นจุดขาย)
 - คำนวณจาก: volatility, volume, social media, dominance, trends
+
+#### ขั้น 5: Whale Data (New!)
+- **Taker Buy/Sell Ratio**: ใครคุมตลาด (Taker Volume)
+- **Top Trader Account/Position Ratio**: วาฬเปิด Long หรือ Short
+- **Order Book Depth**: หา Whale Walls (แนวรับ/ต้านใหญ่)
 
 ### ขั้น 5: รวม Data
 - รอกราฟ + market เสร็จ → ถ้าข่าวยังไม่เสร็จก็รอ (max 15s)
@@ -151,6 +158,13 @@ graph TD
                 "adx": 30
             },
 
+            # Indicators TF 4h (Macro)
+            "indicators_4h": {
+                "ema9": 97000, "ema21": 96500,
+                "rsi14": 55,
+                "supertrend": {"direction": "up"}
+            },
+
             # Market regime (คำนวณจาก indicators)
             "regime": "trending_up",  # trending_up/trending_down/ranging/volatile
 
@@ -160,7 +174,17 @@ graph TD
             "volume_24h_usdt": 1500000000,
             "price_change_5m_pct": 0.15,
             "price_change_1h_pct": 0.8,
-            "price_change_24h_pct": 2.3
+            "price_change_24h_pct": 2.3,
+
+            # Whale Activity
+            "whale_activity": {
+                "taker_buy_sell_ratio": 1.35,
+                "top_trader_long_pct": 62.5,
+                "top_trader_short_pct": 37.5,
+                "open_interest_usdt": 5200000000,
+                "order_book_bid_ask_ratio": 1.8,
+                "whale_walls": ["bid wall at 97500", "ask wall at 99000"]
+            }
         },
         "ETHUSDT": { /* เหมือนกัน */ },
         # ... 6 เหรียญอื่น
@@ -180,21 +204,25 @@ graph TD
     "data_type": "news",
     "fetched_at": "2026-02-11T01:00:05Z",
     "count": 20,
-    "sources_used": ["telegram", "coingecko", "rss_coindesk", "rss_cointelegraph"],
+    "count": 20,
+    "count": 20,
+    "sources_used": ["cryptopanic", "rss_coindesk", "rss_cointelegraph", "web_scraping"],
+    "is_cached": False,  # True ถ้าใช้ cache เพราะดึงช้า >15s
     "is_cached": False,  # True ถ้าใช้ cache เพราะดึงช้า >15s
     "news": [
         {
             "id": "news_1",
             "title": "Bitcoin ETF sees $500M inflow",
-            "source": "telegram:whale_alert",
+            "description": "BlackRock's iShares Bitcoin Trust recorded... (full summary)",
+            "source": "CoinDesk",
             "timestamp": "2026-02-11T00:45:00Z",
-            "url": "https://t.me/whale_alert/12345",
-            "coins_mentioned": ["BTC"]  # optional
+            "url": "https://www.coindesk.com/...",
+            "coins_mentioned": ["BTC"]
         },
         {
             "id": "news_2",
             "title": "Ethereum upgrade delayed to March",
-            "source": "coingecko",
+            "source": "cryptopanic",
             "timestamp": "2026-02-11T00:40:00Z",
             "url": "https://...",
             "coins_mentioned": ["ETH"]
@@ -205,10 +233,10 @@ graph TD
 ```
 
 **แหล่งข่าว (เรียงตามความเร็ว)**:
-1. **Telegram** (10 ข่าว) - เร็วที่สุด, real-time, ใช้ Telethon
-2. **CoinGecko** (5 ข่าว) - ข่าวคุณภาพ, free API 30 calls/min
-3. **RSS Feeds** (5 ข่าว) - CoinDesk, CoinTelegraph, ไม่มี limit
-4. **CryptoPanic** (optional) - เสริม ถ้ายังใช้
+**แหล่งข่าว (เรียงตามความเร็ว)**:
+1. **CryptoPanic API** (10 ข่าว) - เร็วที่สุด (Free Tier)
+2. **Stealth Scraping / RSS** (5 ข่าว) - ใช้ Requests/Feedparser ดึงตรง (เบา, เร็ว)
+3. **Headless Browser** (Fallback) - ถ้า Web Scraping โดน Block Bot → เปิด Headless Chrome ดึงแทน
 
 ---
 
@@ -300,7 +328,8 @@ OUTPUT FORMAT (must be valid JSON):
       "symbol": "BTCUSDT",
       "action": "HOLD|CLOSE|OPEN_LONG|OPEN_SHORT",
       "margin_usdt": 12,  // if opening new
-      "confidence": 78,
+      "sl_price": 97500,  // AI defined SL
+      "tp_price": 99800,  // AI defined TP
       "reason": "Why this decision..."
     }
   ]
@@ -315,20 +344,19 @@ OUTPUT FORMAT (must be valid JSON):
         {
             "symbol": "BTCUSDT",
             "action": "HOLD",
-            "confidence": 85,
             "reason": "กำไร 14.4% แต่ RSI 65 ยังไม่ overbought, ADX 32 trend ยังแรง"
         },
         {
             "symbol": "ETHUSDT",
             "action": "OPEN_LONG",
             "margin_usdt": 12,
-            "confidence": 78,
+            "sl_price": 2850,
+            "tp_price": 3100,
             "reason": "EMA 9/21 golden cross + MACD histogram เป็นบวก + ข่าว upgrade"
         },
         {
             "symbol": "SOLUSDT",
             "action": "SKIP",
-            "confidence": 45,
             "reason": "RSI 48 กลางๆ, ADX 18 ต่ำเกิน ไม่มี trend ชัด"
         }
     ]
@@ -380,23 +408,21 @@ async def execute_orders(ai_response, account_data):
             order = await open_position(
                 symbol=symbol,
                 side=side,
-                quantity=quantity
+                quantity=quantity,
+                sl_price=action.get("sl_price"),
+                tp_price=action.get("tp_price")
             )
 
-            # ตั้ง Safety SL/TP
-            sl_tp = await set_safety_sl_tp(
-                symbol=symbol,
-                entry_price=order["entry_price"],
-                side=side
-            )
+            # ตั้ง Safety SL/TP (Fallback if AI didn't provide valid ones, or use AI's)
+            # Logic moved inside open_position or order_manager
 
             results.append({
                 "symbol": symbol,
                 "status": "opened",
                 "order_id": order["order_id"],
                 "entry_price": order["entry_price"],
-                "sl_price": sl_tp["sl_price"],
-                "tp_price": sl_tp["tp_price"]
+                "sl_price": order["sl_price"],
+                "tp_price": order["tp_price"]
             })
 
     return results
@@ -483,10 +509,11 @@ graph LR
 
 | ประเภท | ค่า | เหตุผล |
 |--------|-----|--------|
-| **Safety SL** | -8% จาก entry (ตาม ATR เผื่อไว้) | กัน flash crash ระหว่าง 5 นาทีที่ bot ไม่ทำงาน |
-| **Safety TP** | +15% จาก entry (เผื่อสูง) | กัน spike ใหญ่ เก็บกำไรอัตโนมัติ |
+| **Safety SL** | AI กำหนดเอง | fallback: -8% (Fixed) |
+| **Safety TP** | AI กำหนดเอง | fallback: +15% (Fixed) |
 
-> **สำคัญ**: SL/TP นี้เป็นแค่ **safety net** — AI ยังตัดสินใจปิดก่อนถึง SL/TP ทุก 5 นาที
+> **สำคัญ**: AI เลิกใช้ Fixed % แล้ว — AI ต้องระบุราคา SL/TP ที่เหมาะสมตาม Technical Analysis (Support/Resistance)
+> แต่ถ้า AI ไม่ระบุ หรือระบุผิด → ระบบจะใช้ Fallback (-8%/+15%) เพื่อความปลอดภัย
 > AI อาจปิดที่ -3% ถ้าเห็นว่า trend ไม่ดี หรือถือต่อถ้ามั่นใจ — ไม่ fix ตายตัว
 
 ---
@@ -507,14 +534,11 @@ graph LR
 
 | Model | Input/MTok | Output/MTok | ต่อ call | ต่อเดือน (288/วัน) | ดีตรงไหน | เหมาะกับเรา? |
 |-------|-----------|------------|---------|-------------------|----------|-------------|
-| **Groq Llama 3.1 8B** | $0.05 | $0.08 | ~$0.0002 | **FREE** | เร็วมาก 800tok/s | ✅ ทดสอบก่อน |
 | **Groq Llama 3.3 70B** | $0.59 | $0.79 | ~$0.002 | **~$17** | ฉลาดกว่า 8B มาก | ✅ **แนะนำเริ่ม** |
 | **DeepSeek V3.2** | $0.28 | $0.42 | ~$0.001 | **~$8** | ถูกมาก, วิเคราะห์เก่ง | ✅ ถูกที่สุดที่ฉลาด |
 | **Kimi K2.5** | $0.60 | $2.50 | ~$0.003 | **~$25** | context window ใหญ่ 262K | ⚠️ แพงกว่า DeepSeek |
-| **Gemini 2.5 Flash-Lite** | $0.10 | $0.40 | ~$0.0005 | **FREE** tier | Google, multimodal | ✅ backup ฟรี |
 | **Gemini 2.5 Flash** | $0.30 | $2.50 | ~$0.002 | **~$17** | reasoning ดี | ✅ ทางเลือก |
 | **Claude Haiku 3.5** | $0.80 | $4.00 | ~$0.004 | **~$35** | วิเคราะห์ละเอียด | ⚠️ แพงขึ้น |
-| **Claude Sonnet 4.5** | $3.00 | $15.00 | ~$0.017 | **~$147** | ฉลาดที่สุด | ❌ แพงเกินสำหรับ 288 calls/วัน |
 
 ### สรุปแนะนำ:
 1. **เริ่มต้น**: Groq Llama 8B (FREE) → ทดสอบระบบก่อน
@@ -530,12 +554,8 @@ graph LR
 
 | # | Source | วิธีดึง | Rate Limit | Block Bot? |
 |---|--------|--------|-----------|------------|
-| 1 | **CryptoPanic API** | REST + free key | ไม่จำกัด | ❌ |
-| 2 | **CryptoPanic RSS** | RSS parser | ไม่จำกัด | ❌ |
-| 3 | **free-crypto-news** | REST no key | ไม่จำกัด | ❌ |
-| 4 | **CoinDesk RSS** | RSS | ไม่จำกัด | ❌ |
-| 5 | **CoinTelegraph RSS** | RSS | ไม่จำกัด | ❌ |
-| 6 | **Binance Blog RSS** | RSS | ไม่จำกัด | ❌ |
+| 2 | **Stealth Scraping** | Requests + Fake UA | จำกัดบ้าง | ⚠️ (ใช้ RSS แทนได้) |
+| 3 | **RSS Feeds** | Feedparser (XML) | ไม่จำกัด | ❌ |
 
 ดึงข่าว crypto รวม (ไม่แยกเหรียญ) → 20 ข่าว + timestamp + source
 
@@ -652,7 +672,8 @@ graph LR
       "symbol": "ETHUSDT",
       "action": "OPEN_LONG",
       "margin_usdt": 12,
-      "confidence": 78,
+      "sl_price": 2850,
+      "tp_price": 3100,
       "reason": "EMA cross + MACD bullish + ตลาดรวมขึ้น"
     }
   ]
@@ -774,7 +795,6 @@ CREATE TABLE trades (
     commission_asset TEXT,              -- USDT/BNB
     
     -- AI context
-    ai_confidence INT,                  -- AI มั่นใจแค่ไหน
     ai_reason TEXT,                     -- ทำไม AI ถึงเทรด
     regime TEXT,                        -- trending_up/trending_down/ranging/volatile
     counter_trend BOOLEAN DEFAULT false,

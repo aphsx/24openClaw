@@ -50,7 +50,7 @@ class NewsFetcher:
         try:
             tasks = [
                 self._fetch_cryptopanic(),
-                self._fetch_free_crypto_news(),
+                # self._fetch_free_crypto_news(), # Removed
                 *[self._fetch_rss(name, url) for name, url in self.RSS_FEEDS.items()],
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -145,29 +145,6 @@ class NewsFetcher:
             log.debug(f"CryptoPanic API failed: {e}")
             return []
 
-    async def _fetch_free_crypto_news(self) -> List[dict]:
-        """Fetch from free-crypto-news API (no key needed)."""
-        session = await self._get_session()
-        try:
-            url = "https://free-crypto-news.vercel.app/api/general"
-            async with session.get(url) as resp:
-                if resp.status != 200:
-                    return []
-                data = await resp.json()
-                if not isinstance(data, list):
-                    data = data.get("articles", data.get("data", []))
-                return [
-                    {
-                        "title": a.get("title", ""),
-                        "source": a.get("source", "free-crypto-news"),
-                        "timestamp": a.get("date", a.get("publishedAt", "")),
-                        "url": a.get("url", a.get("link", "")),
-                    }
-                    for a in (data if isinstance(data, list) else [])[:10]
-                ]
-        except Exception as e:
-            log.debug(f"free-crypto-news failed: {e}")
-            return []
 
     async def _fetch_rss(self, source_name: str, url: str) -> List[dict]:
         """Fetch and parse RSS feed using feedparser."""
