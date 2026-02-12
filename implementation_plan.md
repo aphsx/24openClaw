@@ -59,6 +59,402 @@ graph TD
 
 ---
 
+## 📋 Data Format แต่ละขั้นตอน (ต้อง Return อะไร)
+
+> ทุก function ต้อง return **Python dict** (JSON-serializable) ตามมาตรฐานด้านล่าง
+
+### ขั้น 1: `fetch_account_state()` → Account Data
+
+**หน้าที่**: ดึง balance, positions, ตรวจ SL/TP ที่ trigger
+
+**Return Format**:
+```python
+{
+    "data_type": "account",
+    "fetched_at": "2026-02-11T01:00:01Z",
+    "balance_usdt": 150.42,
+    "available_margin": 120.00,
+    "positions": [
+        {
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "binance_order_id": "12345678",
+            "entry_price": 97500,
+            "current_price": 98200,
+            "quantity": 0.002,
+            "margin_usdt": 10,
+            "leverage": 20,
+            "unrealized_pnl": 1.44,
+            "unrealized_pnl_pct": 14.4,
+            "hold_duration_min": 35,
+            "safety_sl_price": 89700,
+            "safety_tp_price": 112125
+        }
+    ],
+    "closed_since_last_cycle": [
+        {
+            "symbol": "ETHUSDT",
+            "side": "SHORT",
+            "closed_by": "STOP_LOSS",
+            "realized_pnl": -2.10,
+            "commission": 0.08,
+            "note": "SL triggered ระหว่างรอบ"
+        }
+    ]
+}
+```
+
+---
+
+### ขั้น 2: `fetch_market_data()` → กราฟ + Indicators (3 TF)
+
+**หน้าที่**: ดึงเทียน 3 timeframe + คำนวณ 12 indicators + regime
+
+**Return Format**:
+```python
+{
+    "data_type": "market_data",
+    "fetched_at": "2026-02-11T01:00:00Z",
+    "coins": {
+        "BTCUSDT": {
+            "price": 98200,
+
+            # Indicators TF 5m (หลัก)
+            "indicators_5m": {
+                "ema9": 98150, "ema21": 97900, "ema55": 97500,
+                "rsi14": 65,
+                "stoch_rsi_k": 72, "stoch_rsi_d": 68,
+                "macd": {"line": 120, "signal": 95, "histogram": 25},
+                "bb": {"upper": 98800, "mid": 97700, "lower": 96600, "width": 0.022},
+                "atr14": 350, "atr14_pct": 0.36,
+                "adx": 32,
+                "vwap": 97800,
+                "obv": 125000, "obv_trend": "rising",
+                "supertrend": {"value": 97200, "direction": "up"},
+                "volume_ratio": 1.3
+            },
+
+            # Indicators TF 15m (trend กลาง)
+            "indicators_15m": {
+                "ema9": 98000, "ema21": 97700, "ema55": 97200,
+                "rsi14": 60,
+                "macd": {"histogram": 50},
+                "adx": 28,
+                "supertrend": {"direction": "up"}
+            },
+
+            # Indicators TF 1h (trend ใหญ่)
+            "indicators_1h": {
+                "ema9": 97800, "ema21": 97500, "ema200": 95000,
+                "rsi14": 58,
+                "supertrend": {"direction": "up"},
+                "adx": 30
+            },
+
+            # Market regime (คำนวณจาก indicators)
+            "regime": "trending_up",  # trending_up/trending_down/ranging/volatile
+
+            # Market data เพิ่มเติม
+            "funding_rate": 0.0001,
+            "long_short_ratio": 1.25,
+            "volume_24h_usdt": 1500000000,
+            "price_change_5m_pct": 0.15,
+            "price_change_1h_pct": 0.8,
+            "price_change_24h_pct": 2.3
+        },
+        "ETHUSDT": { /* เหมือนกัน */ },
+        # ... 6 เหรียญอื่น
+    }
+}
+```
+
+---
+
+### ขั้น 3: `fetch_news()` → ข่าว 20 ข่าว
+
+**หน้าที่**: รวมข่าวจาก Telegram + CoinGecko + RSS + CryptoPanic
+
+**Return Format**:
+```python
+{
+    "data_type": "news",
+    "fetched_at": "2026-02-11T01:00:05Z",
+    "count": 20,
+    "sources_used": ["telegram", "coingecko", "rss_coindesk", "rss_cointelegraph"],
+    "is_cached": False,  # True ถ้าใช้ cache เพราะดึงช้า >15s
+    "news": [
+        {
+            "id": "news_1",
+            "title": "Bitcoin ETF sees $500M inflow",
+            "source": "telegram:whale_alert",
+            "timestamp": "2026-02-11T00:45:00Z",
+            "url": "https://t.me/whale_alert/12345",
+            "coins_mentioned": ["BTC"]  # optional
+        },
+        {
+            "id": "news_2",
+            "title": "Ethereum upgrade delayed to March",
+            "source": "coingecko",
+            "timestamp": "2026-02-11T00:40:00Z",
+            "url": "https://...",
+            "coins_mentioned": ["ETH"]
+        }
+        # ... 18 ข่าวอื่น
+    ]
+}
+```
+
+**แหล่งข่าว (เรียงตามความเร็ว)**:
+1. **Telegram** (10 ข่าว) - เร็วที่สุด, real-time, ใช้ Telethon
+2. **CoinGecko** (5 ข่าว) - ข่าวคุณภาพ, free API 30 calls/min
+3. **RSS Feeds** (5 ข่าว) - CoinDesk, CoinTelegraph, ไม่มี limit
+4. **CryptoPanic** (optional) - เสริม ถ้ายังใช้
+
+---
+
+### ขั้น 4: `fetch_market_sentiment()` → Fear & Greed + Social
+
+**หน้าที่**: ดึง Fear & Greed Index + social sentiment (optional)
+
+**Return Format**:
+```python
+{
+    "data_type": "market_sentiment",
+    "fetched_at": "2026-02-11T01:00:03Z",
+    "fear_greed": {
+        "value": 68,
+        "label": "Greed",  # Extreme Fear/Fear/Neutral/Greed/Extreme Greed
+        "source": "alternative.me"
+    },
+    "social_sentiment": {  # optional - จาก LunarCrush
+        "twitter_sentiment": 0.65,
+        "reddit_sentiment": 0.72,
+        "source": "lunarcrush"
+    }
+}
+```
+
+---
+
+### ขั้น 5: `combine_all_data()` → รวมทั้งหมด
+
+**หน้าที่**: รวม data จากขั้น 1-4 เป็น JSON ใหญ่
+
+**Python Code**:
+```python
+async def combine_all_data(account, market, news, sentiment, balance_usdt):
+    """รวม data ทั้งหมดเป็น JSON เดียว"""
+
+    return {
+        "cycle_id": f"c_{datetime.now().strftime('%Y%m%d_%H%M')}",
+        "timestamp": datetime.now().isoformat(),
+
+        # จากขั้น 1
+        "account": {
+            "balance_usdt": account["balance_usdt"],
+            "available_margin": account["available_margin"],
+            "positions": account["positions"],
+            "closed_since_last_cycle": account["closed_since_last_cycle"]
+        },
+
+        # จากขั้น 2
+        "coins": market["coins"],
+
+        # จากขั้น 3
+        "news": news["news"],
+
+        # จากขั้น 4
+        "fear_greed": sentiment["fear_greed"],
+
+        # Risk config (คำนวณจาก balance)
+        "risk_config": calculate_risk_config(balance_usdt)
+    }
+```
+
+---
+
+### ขั้น 6: `send_to_ai()` → ส่ง AI วิเคราะห์
+
+**Input**: JSON ใหญ่จากขั้น 5 (ทั้งก้อน)
+
+**AI Prompt Template**:
+```
+You are a crypto trading AI. Analyze the market data and decide actions.
+
+INPUT DATA:
+{combined_json}
+
+INSTRUCTIONS:
+1. Analyze all 8 coins across 3 timeframes
+2. Review news for market sentiment
+3. Check Fear & Greed index
+4. For existing positions: HOLD, CLOSE, or ADJUST
+5. For new positions: OPEN_LONG, OPEN_SHORT, or SKIP
+6. Consider risk based on balance tier
+
+OUTPUT FORMAT (must be valid JSON):
+{
+  "analysis": "Brief market summary...",
+  "actions": [
+    {
+      "symbol": "BTCUSDT",
+      "action": "HOLD|CLOSE|OPEN_LONG|OPEN_SHORT",
+      "margin_usdt": 12,  // if opening new
+      "confidence": 78,
+      "reason": "Why this decision..."
+    }
+  ]
+}
+```
+
+**AI Response (ต้องได้)**:
+```python
+{
+    "analysis": "ตลาด bullish ทั่วไป BTC trend ชัด ADX 32, ETH breakout...",
+    "actions": [
+        {
+            "symbol": "BTCUSDT",
+            "action": "HOLD",
+            "confidence": 85,
+            "reason": "กำไร 14.4% แต่ RSI 65 ยังไม่ overbought, ADX 32 trend ยังแรง"
+        },
+        {
+            "symbol": "ETHUSDT",
+            "action": "OPEN_LONG",
+            "margin_usdt": 12,
+            "confidence": 78,
+            "reason": "EMA 9/21 golden cross + MACD histogram เป็นบวก + ข่าว upgrade"
+        },
+        {
+            "symbol": "SOLUSDT",
+            "action": "SKIP",
+            "confidence": 45,
+            "reason": "RSI 48 กลางๆ, ADX 18 ต่ำเกิน ไม่มี trend ชัด"
+        }
+    ]
+}
+```
+
+---
+
+### ขั้น 7: `execute_orders()` → Execute ตาม AI
+
+**Input**: AI response จากขั้น 6
+
+**Python Code**:
+```python
+async def execute_orders(ai_response, account_data):
+    """Execute orders ตาม AI decisions"""
+
+    results = []
+
+    for action in ai_response["actions"]:
+        symbol = action["symbol"]
+        action_type = action["action"]
+
+        if action_type == "HOLD":
+            # ไม่ทำอะไร
+            results.append({"symbol": symbol, "status": "held"})
+
+        elif action_type == "CLOSE":
+            # ปิด position
+            order = await close_position(symbol)
+            results.append({
+                "symbol": symbol,
+                "status": "closed",
+                "realized_pnl": order["realized_pnl"]
+            })
+
+        elif action_type in ["OPEN_LONG", "OPEN_SHORT"]:
+            # เปิด position ใหม่
+            side = "BUY" if action_type == "OPEN_LONG" else "SELL"
+
+            # คำนวณ quantity จาก margin + leverage
+            quantity = calculate_quantity(
+                symbol=symbol,
+                margin_usdt=action["margin_usdt"],
+                leverage=20
+            )
+
+            # เปิด order + ตั้ง Safety SL/TP
+            order = await open_position(
+                symbol=symbol,
+                side=side,
+                quantity=quantity
+            )
+
+            # ตั้ง Safety SL/TP
+            sl_tp = await set_safety_sl_tp(
+                symbol=symbol,
+                entry_price=order["entry_price"],
+                side=side
+            )
+
+            results.append({
+                "symbol": symbol,
+                "status": "opened",
+                "order_id": order["order_id"],
+                "entry_price": order["entry_price"],
+                "sl_price": sl_tp["sl_price"],
+                "tp_price": sl_tp["tp_price"]
+            })
+
+    return results
+```
+
+---
+
+### ขั้น 8: `save_to_supabase()` → บันทึกข้อมูล (async)
+
+**หน้าที่**: บันทึก cycle, raw_data, ai_decision, trades ลง Supabase
+
+**Python Code**:
+```python
+async def save_to_supabase(cycle_id, combined_data, ai_response, execution_results):
+    """บันทึกข้อมูลทั้งหมดลง Supabase (async, ไม่ block main loop)"""
+
+    # 1. บันทึก cycle
+    await supabase.table("cycles").insert({
+        "cycle_id": cycle_id,
+        "started_at": combined_data["timestamp"],
+        "balance_usdt": combined_data["account"]["balance_usdt"],
+        "actions_taken": len(ai_response["actions"]),
+        "orders_opened": len([r for r in execution_results if r["status"] == "opened"]),
+        "ai_model": "groq-llama-70b",
+        "news_count": len(combined_data["news"])
+    })
+
+    # 2. บันทึก raw_data (แต่ละเหรียญ + ข่าว)
+    for symbol, data in combined_data["coins"].items():
+        await supabase.table("cycle_raw_data").insert({
+            "cycle_id": cycle_id,
+            "data_type": "indicators_5m",
+            "symbol": symbol,
+            "raw_json": data["indicators_5m"]
+        })
+
+    # 3. บันทึก AI decision
+    await supabase.table("ai_decisions").insert({
+        "cycle_id": cycle_id,
+        "input_json": combined_data,
+        "output_json": ai_response,
+        "analysis_text": ai_response["analysis"]
+    })
+
+    # 4. บันทึก trades
+    for result in execution_results:
+        if result["status"] in ["opened", "closed"]:
+            await supabase.table("trades").insert({
+                "cycle_id": cycle_id,
+                "symbol": result["symbol"],
+                "action": result["status"].upper(),
+                "binance_order_id": result.get("order_id"),
+                "entry_price": result.get("entry_price")
+            })
+```
+
+---
+
 ## 📦 Data Flow: เก็บยังไง อ่านยังไง (ต้องเร็ว!)
 
 ```mermaid
