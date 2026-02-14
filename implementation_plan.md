@@ -1,86 +1,159 @@
-# 🤖 ClawBot AI — Final Implementation Plan (v5)
+# ClawBot AI — Implementation Plan v6 (OpenClaw-Inspired)
 
-> **Automation + OpenClaw AI** — ทำเงินได้ทั้ง**ตลาดขาขึ้น (Long) และขาลง (Short)**
-> Code = เครื่องมือดึงข้อมูล | **OpenClaw AI = สมอง ตัดสินใจเทรด**
+> **Single-Coin Focus + AI Reasoning Engine + Champion Risk Rules**
+> Code = เครื่องมือดึงข้อมูล | **AI = สมองตัดสินใจเทรด (ต้องอธิบายเหตุผลได้)**
 > VPS: 8GB RAM, 2 Core | Cron ทุก 5 นาที | เสร็จ <30 วินาที
 
 ---
 
-## 🔄 Workflow ละเอียด
+## สิ่งที่เปลี่ยนจาก v5
 
-```mermaid
-graph TD
-    CRON["⏰ Cron ทุก 5 นาที"] --> S1["🔍 ขั้น 1: เช็ค Balance + Positions<br/>+ ตรวจ SL/TP ที่ trigger ระหว่างรอบ"]
-    S1 --> PAR{"⚡ ขั้น 2-4: PARALLEL 3 ทาง"}
-    PAR --> S2["📊 ขั้น 2: กราฟ + Indicators<br/>8 เหรียญ x 3 TF"]
-    PAR --> S3["📰 ขั้น 3: ข่าว 20 ข่าว (Feedparser)<br/>Title + Description"]
-    PAR --> S4["🌡️ ขั้น 4: Market Data<br/>Funding, L/S, Fear&Greed"]
-    PAR --> S5["🐋 ขั้น 5: Whale Data<br/>Taker Vol, Top Traders, Walls"]
-    S2 --> WAIT["📦 ขั้น 5: รวม data<br/>ถ้าข่าวช้า → refresh กราฟใหม่"]
-    S3 --> WAIT
-    S4 --> WAIT
-    WAIT --> AI["🤖 ขั้น 6: AI ตัดสินใจ<br/>ส่ง JSON ทั้งหมด → AI → JSON คำสั่ง"]
-    AI --> EXEC["💰 ขั้น 7: Execute + ตั้ง Safety SL/TP"]
-    EXEC --> SAVE["💾 ขั้น 8: Save JSON → Supabase (async)"]
-```
-
-### ขั้น 1: เช็คสถานะ
-- ดึง balance + positions ปัจจุบัน
-- **ตรวจ orders ที่ปิดไประหว่าง 5 นาทีที่ไม่ทำงาน** (SL/TP triggered):
-  - เช็ค order IDs จากรอบก่อน → ดึงจาก Binance ว่าสถานะเป็นยังไง
-  - ถ้า SL/TP trigger → บันทึก PnL, fee, commission ลง Supabase
-- **ไม่ข้ามรอบ** → ยังต้อง manage positions เก่า (ปิดกำไร/cut loss/ถือ)
-
-### ขั้น 2-4: PARALLEL (3 ทางพร้อมกัน)
-
-#### ขั้น 2: กราฟ + Indicators (x4 TF = 4 Timeframe)
-
-**4 Timeframe** = ดูกราฟ 4 ขนาดพร้อมกัน:
-| TF | 1 แท่ง = | ดึงกี่แท่ง | ครอบคลุม | หน้าที่ |
-|----|---------|----------|----------|--------|
-| **5m** | 5 นาที | 100 | ~8 ชม. | **หลัก** — หา entry/exit |
-| **15m** | 15 นาที | 50 | ~12 ชม. | trend กลาง |
-| **1h** | 1 ชม. | 24 | 1 วัน | trend ใหญ่ |
-| **4h** | 4 ชม. | 12 | 2 วัน | **Macro** trend |
-
-> 4 TF เหมือนดูแผนที่: 1h=ภาพรวม → 15m=ย่าน → 5m=บ้าน
-
-#### ขั้น 3: ข่าว (async — ต้องใหม่!)
-- ดึง **20 ข่าวล่าสุด** ทุกข่าวมี `title, description, coins_mentioned, source, timestamp, url`
-- ถ้าข่าวเสร็จช้า → **กราฟดึงใหม่** ให้เป็นข้อมูลล่าสุด (แทนที่ข้อมูลเก่าเลย)
-- ถ้าช้ามาก >15s → ใช้ cache แต่ mark ว่าเป็น `cached` + timestamp
-
-#### ขั้น 4: Market Data + Fear & Greed
-**Fear & Greed Index** = ดัชนีวัดอารมณ์ตลาด 0-100:
-- 0-24 = Extreme Fear 😱 (อาจเป็นจุดซื้อ) | 75-100 = Extreme Greed 🚀 (อาจเป็นจุดขาย)
-- คำนวณจาก: volatility, volume, social media, dominance, trends
-
-#### ขั้น 5: Whale Data (New!)
-- **Taker Buy/Sell Ratio**: ใครคุมตลาด (Taker Volume)
-- **Top Trader Account/Position Ratio**: วาฬเปิด Long หรือ Short
-- **Order Book Depth**: หา Whale Walls (แนวรับ/ต้านใหญ่)
-
-### ขั้น 5: รวม Data
-- รอกราฟ + market เสร็จ → ถ้าข่าวยังไม่เสร็จก็รอ (max 15s)
-- **ถ้าข่าวช้า >5s**: ดึงราคากราฟใหม่ → แทนที่ข้อมูลเก่าเลย (ไม่มี flag พิเศษ)
+| หัวข้อ | v5 (เก่า) | v6 (ใหม่) | เหตุผล |
+|--------|----------|----------|--------|
+| **เหรียญ** | 8 เหรียญ + dynamic | **1 เหรียญ (BTCUSDT)** | focus = แม่นยำกว่า, AI วิเคราะห์ลึกกว่า |
+| **Risk Rules** | AI ตัดสินใจเอง ไม่มี daily limit | **Hardcoded rules ที่ AI bypass ไม่ได้** | ตาม Alpha Arena winners |
+| **Strategy Scoring** | ไม่มี | **มี score + decay + bench** | self-evaluation loop |
+| **Daily Loss Limit** | ไม่มี | **-5% หยุดเทรดทั้งวัน** | ป้องกันหายนะ |
+| **Position Size** | dynamic ตาม balance tier | **Max 2% ของ equity (hardcoded)** | 1-2% Rule จาก Alpha Arena |
+| **AI Decision** | วิเคราะห์ผิวเผิน 8 เหรียญ | **Deep analysis 1 เหรียญ + chain-of-thought** | reasoning ที่อธิบายได้ |
+| **HTF Alignment** | optional | **บังคับ — ห้ามเทรดสวน higher TF** | "Don't Catch Knives" |
+| **Consecutive Losses** | ไม่มีการจัดการ | **แพ้ 3 ครั้งติด → bench (พัก 1 ชม.)** | strategy decay |
+| **Max Trades/Day** | ไม่จำกัด | **20 เทรด/วัน** | ป้องกัน overtrading |
 
 ---
 
-## 📋 Data Format แต่ละขั้นตอน (ต้อง Return อะไร)
+## ปรัชญาหลัก (จาก OpenClaw + Alpha Arena)
 
-> ทุก function ต้อง return **Python dict** (JSON-serializable) ตามมาตรฐานด้านล่าง
+```
+"You are the CIO, AI is your Lead Trader"
+— AI ต้องอธิบายเหตุผลทุกเทรด
+— ถ้าอธิบายไม่ได้ → ไม่เทรด
+— Hardcoded risk rules ที่ AI ไม่สามารถ bypass ได้
+— ทุกเทรดต้อง align กับ higher timeframe
+— บันทึก expected vs actual → เรียนรู้จากตัวเอง
+```
 
-### ขั้น 1: `fetch_account_state()` → Account Data
+---
 
-**หน้าที่**: ดึง balance, positions, ตรวจ SL/TP ที่ trigger
+## Single-Coin Focus: ทำไมแค่ BTC?
 
-**Return Format**:
+```
+ปัญหาของ 8 เหรียญ:
+- AI ต้องวิเคราะห์ 8 x 4 TF = 32 ชุด indicators → ผิวเผิน
+- Token limit: ข้อมูลเยอะ → AI ตัดสินใจแย่ลง
+- Noise: เหรียญ altcoin ถูก BTC ลากอยู่แล้ว ~70-80%
+
+ข้อดีของ 1 เหรียญ (BTC):
+- AI วิเคราะห์ลึก 4 TF + whale + news + sentiment → แม่นยำขึ้น
+- Token ที่ส่ง AI น้อยลง → response ดีขึ้น ถูกลง
+- Liquidity สูงสุด → slippage น้อยที่สุด
+- ข่าว BTC = ข่าวตลาดทั้งหมด
+- Focus = ความแม่นยำ → Win Rate สูงขึ้น
+
+อนาคต: ถ้า BTC profitable → เพิ่ม ETH เป็นเหรียญที่ 2
+```
+
+---
+
+## Workflow (8 ขั้นตอน)
+
+```mermaid
+graph TD
+    CRON["Cron ทุก 5 นาที"] --> GUARD["ขั้น 0: Safety Guard<br/>เช็ค daily loss + trade count + bench"]
+    GUARD -->|ผ่าน| S1["ขั้น 1: เช็ค Balance + Positions<br/>+ ตรวจ SL/TP ที่ trigger"]
+    GUARD -->|ไม่ผ่าน| SKIP["SKIP รอบนี้ + แจ้ง Telegram"]
+    S1 --> PAR{"PARALLEL 3 ทาง"}
+    PAR --> S2["ขั้น 2: กราฟ BTCUSDT x 4 TF<br/>+ 12 Indicators + Regime"]
+    PAR --> S3["ขั้น 3: ข่าว 20 ข่าว<br/>+ Fear & Greed"]
+    PAR --> S4["ขั้น 4: Whale Data<br/>Taker Vol, Top Traders, OI"]
+    S2 --> COMBINE["ขั้น 5: รวม Data + HTF Check"]
+    S3 --> COMBINE
+    S4 --> COMBINE
+    COMBINE --> AI["ขั้น 6: AI Deep Analysis<br/>Chain-of-Thought → ต้องอธิบายได้"]
+    AI --> VALIDATE["ขั้น 6.5: Validate AI Decision<br/>เช็คกับ Hardcoded Rules"]
+    VALIDATE --> EXEC["ขั้น 7: Execute + Safety SL/TP"]
+    EXEC --> SAVE["ขั้น 8: Save + Score Update + Notify"]
+```
+
+---
+
+## ขั้น 0: Safety Guard (NEW — ก่อนทำอะไรทั้งหมด)
+
+**Hardcoded Rules ที่ AI ไม่สามารถ bypass ได้:**
+
+```python
+HARDCODED_RULES = {
+    # Position Sizing (จาก Alpha Arena "1-2% Rule")
+    "MAX_POSITION_SIZE_PCT": 0.02,      # ไม่เกิน 2% ของ equity ต่อเทรด
+    "MAX_TOTAL_EXPOSURE_PCT": 0.10,     # exposure รวมไม่เกิน 10%
+
+    # Stop Loss
+    "MANDATORY_STOP_LOSS": True,        # ทุกเทรดต้องมี SL
+    "MAX_STOP_LOSS_PCT": 0.05,          # SL ไม่เกิน 5% จาก entry
+
+    # Daily Limits
+    "MAX_DAILY_LOSS_PCT": 0.05,         # ขาดทุน > 5% ต่อวัน → หยุดเทรดทั้งวัน
+    "MAX_TRADES_PER_DAY": 20,           # ไม่เกิน 20 เทรด/วัน
+
+    # Trend Filter (จาก "Don't Catch Knives")
+    "REQUIRE_HTF_ALIGNMENT": True,      # ต้อง align กับ 1h/4h trend
+
+    # Strategy Benching (จาก Alpha Arena)
+    "BENCH_AFTER_CONSECUTIVE_LOSSES": 3, # แพ้ 3 ครั้งติด → พัก 1 ชม.
+    "STRATEGY_SCORE_DECAY_PER_HOUR": 1,  # score ลดทุกชั่วโมง
+
+    # Explainability
+    "REQUIRE_EXPLANATION": True,         # AI ต้องให้เหตุผลทุกเทรด
+}
+```
+
+**Guard Logic:**
+```python
+async def safety_guard(state):
+    """เช็คก่อนทำอะไร — ถ้าไม่ผ่าน → SKIP รอบนี้"""
+
+    # 1. เช็ค daily loss
+    if state["daily_pnl_pct"] <= -HARDCODED_RULES["MAX_DAILY_LOSS_PCT"]:
+        return {"allow": False, "reason": "Daily loss limit reached (-5%)"}
+
+    # 2. เช็ค trade count
+    if state["trades_today"] >= HARDCODED_RULES["MAX_TRADES_PER_DAY"]:
+        return {"allow": False, "reason": "Max 20 trades/day reached"}
+
+    # 3. เช็ค bench status
+    if state["bench_until"] and datetime.now() < state["bench_until"]:
+        return {"allow": False, "reason": f"Benched until {state['bench_until']}"}
+
+    return {"allow": True}
+```
+
+---
+
+## ขั้น 1: เช็คสถานะ
+
+เหมือน v5 แต่เพิ่ม:
+- ดึง **daily PnL** สะสม (สำหรับ daily loss limit check)
+- ดึง **consecutive losses count** (สำหรับ bench check)
+- ดึง **trade count วันนี้** (สำหรับ max trades check)
+- ดึง **strategy score ปัจจุบัน**
+
+**Return Format:**
 ```python
 {
     "data_type": "account",
-    "fetched_at": "2026-02-11T01:00:01Z",
+    "fetched_at": "2026-02-14T01:00:01Z",
     "balance_usdt": 150.42,
     "available_margin": 120.00,
+    "equity": 155.00,  # balance + unrealized PnL
+
+    # Safety state
+    "daily_pnl_usdt": -3.20,
+    "daily_pnl_pct": -2.1,
+    "trades_today": 5,
+    "consecutive_losses": 1,
+    "strategy_score": 72,      # 0-100, เริ่ม 50
+    "bench_until": null,
+
     "positions": [
         {
             "symbol": "BTCUSDT",
@@ -89,22 +162,24 @@ graph TD
             "entry_price": 97500,
             "current_price": 98200,
             "quantity": 0.002,
-            "margin_usdt": 10,
+            "margin_usdt": 3.10,   # max 2% of equity
             "leverage": 20,
             "unrealized_pnl": 1.44,
             "unrealized_pnl_pct": 14.4,
             "hold_duration_min": 35,
-            "safety_sl_price": 89700,
-            "safety_tp_price": 112125
+            "safety_sl_price": 95000,
+            "safety_tp_price": 101000
         }
     ],
     "closed_since_last_cycle": [
         {
-            "symbol": "ETHUSDT",
+            "symbol": "BTCUSDT",
             "side": "SHORT",
             "closed_by": "STOP_LOSS",
             "realized_pnl": -2.10,
             "commission": 0.08,
+            "expected_outcome": "profit +3%",
+            "actual_outcome": "loss -2.1%",
             "note": "SL triggered ระหว่างรอบ"
         }
     ]
@@ -113,744 +188,425 @@ graph TD
 
 ---
 
-### ขั้น 2: `fetch_market_data()` → กราฟ + Indicators (3 TF)
+## ขั้น 2: กราฟ BTCUSDT x 4 TF (Deep Analysis)
 
-**หน้าที่**: ดึงเทียน 3 timeframe + คำนวณ 12 indicators + regime
+**เหรียญเดียว = วิเคราะห์ลึกกว่า:**
 
-**Return Format**:
+| TF | แท่ง | ครอบคลุม | หน้าที่ |
+|----|------|----------|--------|
+| **5m** | 200 | ~16 ชม. | **Primary** — entry/exit signals |
+| **15m** | 100 | ~25 ชม. | Trend กลาง + confirmation |
+| **1h** | 48 | 2 วัน | Major trend + HTF alignment check |
+| **4h** | 24 | 4 วัน | **Macro** — directional bias (บังคับ align) |
+
+**12 Indicators (เหมือน v5):**
+
+| # | Indicator | ใช้ทำอะไร |
+|---|-----------|----------|
+| 1 | **EMA 9/21/55** | Trend + crossover |
+| 2 | **RSI 14** | Overbought/Oversold |
+| 3 | **MACD (12,26,9)** | Momentum |
+| 4 | **Bollinger Bands (20,2)** | Volatility |
+| 5 | **ATR 14** | Dynamic SL/TP |
+| 6 | **VWAP** | Institutional level |
+| 7 | **ADX 14** | Trend strength |
+| 8 | **Stochastic RSI** | Fast reversal |
+| 9 | **OBV** | Volume divergence |
+| 10 | **Supertrend (10,3)** | Trend direction |
+| 11 | **Volume Ratio** | Volume anomaly |
+| 12 | **EMA 200 (1h)** | Major trend filter |
+
+**HTF Alignment Check (บังคับ):**
+```python
+def check_htf_alignment(indicators):
+    """ต้อง align กับ 1h และ 4h ก่อนเทรด"""
+    htf_bullish = (
+        indicators["1h"]["supertrend"]["direction"] == "up" and
+        indicators["4h"]["supertrend"]["direction"] == "up" and
+        indicators["1h"]["ema9"] > indicators["1h"]["ema21"]
+    )
+    htf_bearish = (
+        indicators["1h"]["supertrend"]["direction"] == "down" and
+        indicators["4h"]["supertrend"]["direction"] == "down" and
+        indicators["1h"]["ema9"] < indicators["1h"]["ema21"]
+    )
+    return {
+        "can_long": htf_bullish,
+        "can_short": htf_bearish,
+        "direction": "bullish" if htf_bullish else "bearish" if htf_bearish else "neutral"
+    }
+```
+
+**Return Format:**
 ```python
 {
     "data_type": "market_data",
-    "fetched_at": "2026-02-11T01:00:00Z",
-    "coins": {
-        "BTCUSDT": {
-            "price": 98200,
+    "fetched_at": "2026-02-14T01:00:00Z",
+    "symbol": "BTCUSDT",
+    "price": 98200,
 
-            # Indicators TF 5m (หลัก)
-            "indicators_5m": {
-                "ema9": 98150, "ema21": 97900, "ema55": 97500,
-                "rsi14": 65,
-                "stoch_rsi_k": 72, "stoch_rsi_d": 68,
-                "macd": {"line": 120, "signal": 95, "histogram": 25},
-                "bb": {"upper": 98800, "mid": 97700, "lower": 96600, "width": 0.022},
-                "atr14": 350, "atr14_pct": 0.36,
-                "adx": 32,
-                "vwap": 97800,
-                "obv": 125000, "obv_trend": "rising",
-                "supertrend": {"value": 97200, "direction": "up"},
-                "volume_ratio": 1.3
-            },
+    "indicators_5m": { /* 12 indicators เต็ม */ },
+    "indicators_15m": { /* 12 indicators เต็ม */ },
+    "indicators_1h": { /* 12 indicators เต็ม + EMA200 */ },
+    "indicators_4h": { /* key indicators: EMA, RSI, Supertrend, ADX */ },
 
-            # Indicators TF 15m (trend กลาง)
-            "indicators_15m": {
-                "ema9": 98000, "ema21": 97700, "ema55": 97200,
-                "rsi14": 60,
-                "macd": {"histogram": 50},
-                "adx": 28,
-                "supertrend": {"direction": "up"}
-            },
+    "regime": "trending_up",
 
-            # Indicators TF 1h (trend ใหญ่)
-            "indicators_1h": {
-                "ema9": 97800, "ema21": 97500, "ema200": 95000,
-                "rsi14": 58,
-                "supertrend": {"direction": "up"},
-                "adx": 30
-            },
-
-            # Indicators TF 4h (Macro)
-            "indicators_4h": {
-                "ema9": 97000, "ema21": 96500,
-                "rsi14": 55,
-                "supertrend": {"direction": "up"}
-            },
-
-            # Market regime (คำนวณจาก indicators)
-            "regime": "trending_up",  # trending_up/trending_down/ranging/volatile
-
-            # Market data เพิ่มเติม
-            "funding_rate": 0.0001,
-            "long_short_ratio": 1.25,
-            "volume_24h_usdt": 1500000000,
-            "price_change_5m_pct": 0.15,
-            "price_change_1h_pct": 0.8,
-            "price_change_24h_pct": 2.3,
-
-            # Whale Activity
-            "whale_activity": {
-                "taker_buy_sell_ratio": 1.35,
-                "top_trader_long_pct": 62.5,
-                "top_trader_short_pct": 37.5,
-                "open_interest_usdt": 5200000000,
-                "order_book_bid_ask_ratio": 1.8,
-                "whale_walls": ["bid wall at 97500", "ask wall at 99000"]
-            }
-        },
-        "ETHUSDT": { /* เหมือนกัน */ },
-        # ... 6 เหรียญอื่น
-    }
-}
-```
-
----
-
-### ขั้น 3: `fetch_news()` → ข่าว 20 ข่าว
-
-**หน้าที่**: รวมข่าวจาก Telegram + CoinGecko + RSS + CryptoPanic
-
-**Return Format**:
-```python
-{
-    "data_type": "news",
-    "fetched_at": "2026-02-11T01:00:05Z",
-    "count": 20,
-    "count": 20,
-    "count": 20,
-    "sources_used": ["cryptopanic", "rss_coindesk", "rss_cointelegraph", "web_scraping"],
-    "is_cached": False,  # True ถ้าใช้ cache เพราะดึงช้า >15s
-    "is_cached": False,  # True ถ้าใช้ cache เพราะดึงช้า >15s
-    "news": [
-        {
-            "id": "news_1",
-            "title": "Bitcoin ETF sees $500M inflow",
-            "description": "BlackRock's iShares Bitcoin Trust recorded... (full summary)",
-            "source": "CoinDesk",
-            "timestamp": "2026-02-11T00:45:00Z",
-            "url": "https://www.coindesk.com/...",
-            "coins_mentioned": ["BTC"]
-        },
-        {
-            "id": "news_2",
-            "title": "Ethereum upgrade delayed to March",
-            "source": "cryptopanic",
-            "timestamp": "2026-02-11T00:40:00Z",
-            "url": "https://...",
-            "coins_mentioned": ["ETH"]
-        }
-        # ... 18 ข่าวอื่น
-    ]
-}
-```
-
-**แหล่งข่าว (เรียงตามความเร็ว)**:
-**แหล่งข่าว (เรียงตามความเร็ว)**:
-1. **CryptoPanic API** (10 ข่าว) - เร็วที่สุด (Free Tier)
-2. **Stealth Scraping / RSS** (5 ข่าว) - ใช้ Requests/Feedparser ดึงตรง (เบา, เร็ว)
-3. **Headless Browser** (Fallback) - ถ้า Web Scraping โดน Block Bot → เปิด Headless Chrome ดึงแทน
-
----
-
-### ขั้น 4: `fetch_market_sentiment()` → Fear & Greed + Social
-
-**หน้าที่**: ดึง Fear & Greed Index + social sentiment (optional)
-
-**Return Format**:
-```python
-{
-    "data_type": "market_sentiment",
-    "fetched_at": "2026-02-11T01:00:03Z",
-    "fear_greed": {
-        "value": 68,
-        "label": "Greed",  # Extreme Fear/Fear/Neutral/Greed/Extreme Greed
-        "source": "alternative.me"
+    # HTF Alignment (บังคับเช็ค)
+    "htf_alignment": {
+        "can_long": true,
+        "can_short": false,
+        "direction": "bullish",
+        "reason": "1h+4h Supertrend UP, EMA9>EMA21 ทั้ง 2 TF"
     },
-    "social_sentiment": {  # optional - จาก LunarCrush
-        "twitter_sentiment": 0.65,
-        "reddit_sentiment": 0.72,
-        "source": "lunarcrush"
+
+    # Market data
+    "funding_rate": 0.0001,
+    "long_short_ratio": 1.25,
+    "volume_24h_usdt": 1500000000,
+    "price_change_5m_pct": 0.15,
+    "price_change_1h_pct": 0.8,
+    "price_change_24h_pct": 2.3,
+
+    # Whale Activity
+    "whale_activity": {
+        "taker_buy_sell_ratio": 1.35,
+        "top_trader_long_pct": 62.5,
+        "top_trader_short_pct": 37.5,
+        "open_interest_usdt": 5200000000,
+        "order_book_bid_ask_ratio": 1.8,
+        "whale_walls": ["bid wall at 97500", "ask wall at 99000"]
     }
 }
 ```
 
 ---
 
-### ขั้น 5: `combine_all_data()` → รวมทั้งหมด
+## ขั้น 3: ข่าว + Sentiment (เหมือน v5)
 
-**หน้าที่**: รวม data จากขั้น 1-4 เป็น JSON ใหญ่
-
-**Python Code**:
-```python
-async def combine_all_data(account, market, news, sentiment, balance_usdt):
-    """รวม data ทั้งหมดเป็น JSON เดียว"""
-
-    return {
-        "cycle_id": f"c_{datetime.now().strftime('%Y%m%d_%H%M')}",
-        "timestamp": datetime.now().isoformat(),
-
-        # จากขั้น 1
-        "account": {
-            "balance_usdt": account["balance_usdt"],
-            "available_margin": account["available_margin"],
-            "positions": account["positions"],
-            "closed_since_last_cycle": account["closed_since_last_cycle"]
-        },
-
-        # จากขั้น 2
-        "coins": market["coins"],
-
-        # จากขั้น 3
-        "news": news["news"],
-
-        # จากขั้น 4
-        "fear_greed": sentiment["fear_greed"],
-
-        # Risk config (คำนวณจาก balance)
-        "risk_config": calculate_risk_config(balance_usdt)
-    }
-```
+- ดึง **20 ข่าวล่าสุด** (CryptoPanic + RSS + Stealth)
+- **Focus BTC news** — filter เฉพาะข่าวที่เกี่ยวกับ BTC หรือตลาดรวม
+- Fear & Greed Index
 
 ---
 
-### ขั้น 6: `send_to_ai()` → ส่ง AI วิเคราะห์
+## ขั้น 4: Whale Data (เหมือน v5)
 
-**Input**: JSON ใหญ่จากขั้น 5 (ทั้งก้อน)
+- Taker Buy/Sell Ratio
+- Top Trader Long/Short
+- Order Book Depth / Whale Walls
+- Open Interest
 
-**AI Prompt Template**:
+---
+
+## ขั้น 5: รวม Data + HTF Check
+
+เหมือน v5 แต่:
+- **เช็ค HTF Alignment ก่อนส่ง AI** — ถ้า neutral (ไม่มี direction) → บอก AI ว่า "ห้ามเปิด position ใหม่"
+- ใส่ **strategy score** และ **consecutive losses** ใน context ให้ AI
+
+---
+
+## ขั้น 6: AI Deep Analysis (CORE CHANGE)
+
+### AI Prompt ใหม่ (Chain-of-Thought + Explainable)
+
 ```
-You are a crypto trading AI. Analyze the market data and decide actions.
+SYSTEM PROMPT:
+You are an expert BTC futures trader AI. You MUST follow these rules:
 
-INPUT DATA:
-{combined_json}
+HARDCODED RULES (cannot override):
+1. Max position: 2% of equity
+2. Every trade MUST have stop-loss (max -5% from entry)
+3. LONG only when HTF alignment = bullish
+4. SHORT only when HTF alignment = bearish
+5. If HTF = neutral → HOLD or SKIP only
+6. Every decision MUST have clear reasoning (chain-of-thought)
+7. If you cannot explain WHY → action = SKIP
 
-INSTRUCTIONS:
-1. Analyze all 8 coins across 3 timeframes
-2. Review news for market sentiment
-3. Check Fear & Greed index
-4. For existing positions: HOLD, CLOSE, or ADJUST
-5. For new positions: OPEN_LONG, OPEN_SHORT, or SKIP
-6. Consider risk based on balance tier
+ANALYSIS FRAMEWORK (Think step by step):
+Step 1: Read HTF direction (4h + 1h) — what is the macro trend?
+Step 2: Read 15m trend — does it confirm or diverge from HTF?
+Step 3: Read 5m signals — is there a clear entry/exit signal NOW?
+Step 4: Check whale data — are big players buying or selling?
+Step 5: Check news + sentiment — any catalysts or risks?
+Step 6: Check current positions — manage existing before opening new
+Step 7: Risk assessment — calculate exact margin, SL, TP based on ATR
+Step 8: Final decision with confidence score (0-100)
+
+CONFIDENCE THRESHOLD:
+- confidence >= 75 → execute trade
+- confidence 50-74 → HOLD/monitor only
+- confidence < 50 → SKIP (do nothing)
+
+POSITION MANAGEMENT:
+- Profitable position > +10%: evaluate momentum, close if weakening
+- Losing position > -3%: cut if trend reversed, hold if still aligned
+- AI สามารถตั้ง SL/TP ที่เหมาะสมตาม technical levels (support/resistance)
 
 OUTPUT FORMAT (must be valid JSON):
 {
-  "analysis": "Brief market summary...",
-  "actions": [
-    {
-      "symbol": "BTCUSDT",
-      "action": "HOLD|CLOSE|OPEN_LONG|OPEN_SHORT",
-      "margin_usdt": 12,  // if opening new
-      "sl_price": 97500,  // AI defined SL
-      "tp_price": 99800,  // AI defined TP
-      "reason": "Why this decision..."
+    "chain_of_thought": {
+        "step1_htf": "4h Supertrend UP, EMA9>21. 1h also UP. Macro = BULLISH",
+        "step2_15m": "15m trend confirming uptrend, MACD histogram positive",
+        "step3_5m": "5m RSI bounced from 35, EMA9 crossing above EMA21",
+        "step4_whales": "Taker ratio 1.35 = buyers dominating, OI rising",
+        "step5_news": "BTC ETF inflow news = bullish catalyst",
+        "step6_positions": "No open positions currently",
+        "step7_risk": "ATR=$350, SL at recent swing low $97,500, TP at resistance $99,800",
+        "step8_decision": "All signals aligned → OPEN_LONG with high confidence"
+    },
+    "confidence": 82,
+    "action": {
+        "symbol": "BTCUSDT",
+        "action": "OPEN_LONG",
+        "margin_usdt": 3.10,
+        "sl_price": 97500,
+        "tp_price": 99800,
+        "reason": "HTF bullish + 5m EMA cross + whale buying + ETF inflow news"
+    },
+    "expected_outcome": "+2.3% within 2-6 cycles based on momentum",
+    "market_view": "BTC bullish short-term, supported by institutional inflows"
+}
+```
+
+### AI Response Validation (ขั้น 6.5)
+
+**หลัง AI ตอบ → validate ก่อน execute:**
+
+```python
+async def validate_ai_decision(ai_response, account, htf_alignment):
+    """Validate AI decision กับ hardcoded rules"""
+    action = ai_response["action"]
+    errors = []
+
+    # 1. Confidence check
+    if ai_response["confidence"] < 75 and action["action"] in ["OPEN_LONG", "OPEN_SHORT"]:
+        errors.append(f"Confidence {ai_response['confidence']} < 75, cannot open")
+
+    # 2. HTF alignment check
+    if action["action"] == "OPEN_LONG" and not htf_alignment["can_long"]:
+        errors.append("Cannot LONG: HTF not bullish")
+    if action["action"] == "OPEN_SHORT" and not htf_alignment["can_short"]:
+        errors.append("Cannot SHORT: HTF not bearish")
+
+    # 3. Position size check (max 2%)
+    max_margin = account["equity"] * HARDCODED_RULES["MAX_POSITION_SIZE_PCT"]
+    if action.get("margin_usdt", 0) > max_margin:
+        action["margin_usdt"] = max_margin  # force cap
+
+    # 4. SL check
+    if action["action"] in ["OPEN_LONG", "OPEN_SHORT"]:
+        if not action.get("sl_price"):
+            errors.append("No SL price — mandatory")
+        else:
+            sl_pct = abs(action["sl_price"] - account["positions"][0]["entry_price"] if account["positions"] else 98200) / 98200
+            if sl_pct > HARDCODED_RULES["MAX_STOP_LOSS_PCT"]:
+                errors.append(f"SL {sl_pct:.1%} > max 5%")
+
+    # 5. Explanation check
+    if not ai_response.get("chain_of_thought"):
+        errors.append("No chain-of-thought reasoning")
+
+    if errors:
+        return {"valid": False, "errors": errors, "override_action": "SKIP"}
+
+    return {"valid": True, "action": action}
+```
+
+---
+
+## ขั้น 7: Execute (เหมือน v5 + validation)
+
+เหมือน v5 แต่:
+- **ผ่าน validation ก่อน** (ขั้น 6.5)
+- ถ้า validation fail → SKIP + log เหตุผล
+- Position size ถูก cap ที่ 2% equity เสมอ
+
+---
+
+## ขั้น 8: Save + Strategy Score Update (NEW)
+
+### Strategy Score System (จาก Alpha Arena)
+
+```python
+async def update_strategy_score(trade_result, current_score):
+    """Update score หลังทุกเทรด"""
+
+    if trade_result["realized_pnl"] > 0:
+        # ชนะ: +5 score (cap at 100)
+        new_score = min(100, current_score + 5)
+    else:
+        # แพ้: -10 score (min 0)
+        new_score = max(0, current_score - 10)
+
+    # Decay: -1 per hour (ทำใน cron แยก)
+
+    return new_score
+```
+
+### Self-Evaluation Loop (จาก Alpha Arena)
+
+```python
+async def self_evaluate(trade):
+    """เทียบ expected vs actual — เรียนรู้จากตัวเอง"""
+    evaluation = {
+        "trade_id": trade["id"],
+        "expected": trade["expected_outcome"],    # AI ทำนายไว้ตอนเปิด
+        "actual": f"{trade['realized_pnl_pct']:.1f}%",
+        "correct_direction": trade["realized_pnl"] > 0,
+        "lesson": ""  # AI จะ fill ในรอบถัดไป
     }
-  ]
-}
+
+    # บันทึกลง Supabase → AI จะเห็นในรอบถัดไป
+    await save_evaluation(evaluation)
 ```
 
-**AI Response (ต้องได้)**:
+### Consecutive Loss → Bench
+
 ```python
-{
-    "analysis": "ตลาด bullish ทั่วไป BTC trend ชัด ADX 32, ETH breakout...",
-    "actions": [
-        {
-            "symbol": "BTCUSDT",
-            "action": "HOLD",
-            "reason": "กำไร 14.4% แต่ RSI 65 ยังไม่ overbought, ADX 32 trend ยังแรง"
-        },
-        {
-            "symbol": "ETHUSDT",
-            "action": "OPEN_LONG",
-            "margin_usdt": 12,
-            "sl_price": 2850,
-            "tp_price": 3100,
-            "reason": "EMA 9/21 golden cross + MACD histogram เป็นบวก + ข่าว upgrade"
-        },
-        {
-            "symbol": "SOLUSDT",
-            "action": "SKIP",
-            "reason": "RSI 48 กลางๆ, ADX 18 ต่ำเกิน ไม่มี trend ชัด"
-        }
-    ]
-}
+async def check_bench(consecutive_losses):
+    """แพ้ 3 ครั้งติด → bench 1 ชั่วโมง"""
+    if consecutive_losses >= HARDCODED_RULES["BENCH_AFTER_CONSECUTIVE_LOSSES"]:
+        bench_until = datetime.now() + timedelta(hours=1)
+        await notify(f"BENCHED: 3 consecutive losses. Resume at {bench_until}")
+        return bench_until
+    return None
 ```
 
 ---
 
-### ขั้น 7: `execute_orders()` → Execute ตาม AI
+## Risk Management (Champion Rules)
 
-**Input**: AI response จากขั้น 6
+### Hardcoded Rules Summary
 
-**Python Code**:
+| Rule | ค่า | ที่มา | ทำไม |
+|------|-----|------|------|
+| **Max Position** | 2% of equity | Alpha Arena "1-2% Rule" | LLM hallucinate → ไม่เจ๊บ |
+| **Max Exposure** | 10% of equity | OpenClaw standard | รวมทุก position |
+| **Mandatory SL** | ทุกเทรด | Alpha Arena | ไม่มี SL = ไม่เทรด |
+| **Max SL** | -5% จาก entry | OpenClaw standard | cap worst case |
+| **Daily Loss Limit** | -5% | Alpha Arena | หยุดก่อนเจ๊ง |
+| **Max Trades/Day** | 20 | Alpha Arena | ป้องกัน overtrading |
+| **HTF Alignment** | บังคับ | "Don't Catch Knives" | เทรดตาม trend ใหญ่เท่านั้น |
+| **Bench** | 3 แพ้ติด → พัก 1 ชม. | Strategy Scoring | หยุดคิด ไม่ revenge trade |
+| **Confidence** | >= 75 ถึงเทรด | Explainable decisions | ไม่มั่นใจ = ไม่เทรด |
+| **Explanation** | บังคับ | Alpha Arena | อธิบายไม่ได้ = ไม่เทรด |
+
+### Position Sizing (Hardcoded Cap)
+
 ```python
-async def execute_orders(ai_response, account_data):
-    """Execute orders ตาม AI decisions"""
-
-    results = []
-
-    for action in ai_response["actions"]:
-        symbol = action["symbol"]
-        action_type = action["action"]
-
-        if action_type == "HOLD":
-            # ไม่ทำอะไร
-            results.append({"symbol": symbol, "status": "held"})
-
-        elif action_type == "CLOSE":
-            # ปิด position
-            order = await close_position(symbol)
-            results.append({
-                "symbol": symbol,
-                "status": "closed",
-                "realized_pnl": order["realized_pnl"]
-            })
-
-        elif action_type in ["OPEN_LONG", "OPEN_SHORT"]:
-            # เปิด position ใหม่
-            side = "BUY" if action_type == "OPEN_LONG" else "SELL"
-
-            # คำนวณ quantity จาก margin + leverage
-            quantity = calculate_quantity(
-                symbol=symbol,
-                margin_usdt=action["margin_usdt"],
-                leverage=20
-            )
-
-            # เปิด order + ตั้ง Safety SL/TP
-            order = await open_position(
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                sl_price=action.get("sl_price"),
-                tp_price=action.get("tp_price")
-            )
-
-            # ตั้ง Safety SL/TP (Fallback if AI didn't provide valid ones, or use AI's)
-            # Logic moved inside open_position or order_manager
-
-            results.append({
-                "symbol": symbol,
-                "status": "opened",
-                "order_id": order["order_id"],
-                "entry_price": order["entry_price"],
-                "sl_price": order["sl_price"],
-                "tp_price": order["tp_price"]
-            })
-
-    return results
+def calculate_position_size(equity, ai_suggested_margin):
+    """Position size — capped ที่ 2% เสมอ"""
+    max_margin = equity * 0.02  # hardcoded 2%
+    actual_margin = min(ai_suggested_margin, max_margin)
+    actual_margin = max(actual_margin, 5.0)  # minimum $5
+    return actual_margin
 ```
 
----
-
-### ขั้น 8: `save_to_supabase()` → บันทึกข้อมูล (async)
-
-**หน้าที่**: บันทึก cycle, raw_data, ai_decision, trades ลง Supabase
-
-**Python Code**:
-```python
-async def save_to_supabase(cycle_id, combined_data, ai_response, execution_results):
-    """บันทึกข้อมูลทั้งหมดลง Supabase (async, ไม่ block main loop)"""
-
-    # 1. บันทึก cycle
-    await supabase.table("cycles").insert({
-        "cycle_id": cycle_id,
-        "started_at": combined_data["timestamp"],
-        "balance_usdt": combined_data["account"]["balance_usdt"],
-        "actions_taken": len(ai_response["actions"]),
-        "orders_opened": len([r for r in execution_results if r["status"] == "opened"]),
-        "ai_model": "groq-llama-70b",
-        "news_count": len(combined_data["news"])
-    })
-
-    # 2. บันทึก raw_data (แต่ละเหรียญ + ข่าว)
-    for symbol, data in combined_data["coins"].items():
-        await supabase.table("cycle_raw_data").insert({
-            "cycle_id": cycle_id,
-            "data_type": "indicators_5m",
-            "symbol": symbol,
-            "raw_json": data["indicators_5m"]
-        })
-
-    # 3. บันทึก AI decision
-    await supabase.table("ai_decisions").insert({
-        "cycle_id": cycle_id,
-        "input_json": combined_data,
-        "output_json": ai_response,
-        "analysis_text": ai_response["analysis"]
-    })
-
-    # 4. บันทึก trades
-    for result in execution_results:
-        if result["status"] in ["opened", "closed"]:
-            await supabase.table("trades").insert({
-                "cycle_id": cycle_id,
-                "symbol": result["symbol"],
-                "action": result["status"].upper(),
-                "binance_order_id": result.get("order_id"),
-                "entry_price": result.get("entry_price")
-            })
-```
-
----
-
-## 📦 Data Flow: เก็บยังไง อ่านยังไง (ต้องเร็ว!)
-
-```mermaid
-graph LR
-    FETCH["ดึงข้อมูล<br/>(Binance/News APIs)"] --> DICT["Python dict<br/>in-memory (RAM)"]
-    DICT --> AI["ส่ง AI<br/>(แปลงเป็น JSON string)"]
-    AI --> RESULT["AI ตอบ JSON"]
-    RESULT --> EXEC["Execute Orders"]
-    EXEC --> SUPA["Async Insert<br/>Supabase (หลัง loop)"]
-```
-
-**ขั้นตอนเก็บข้อมูลในแต่ละ cycle:**
-1. ดึงข้อมูลจาก API → เก็บเป็น **Python dict ใน RAM** (เร็วที่สุด)
-2. คำนวณ indicators → ใส่เข้า dict เดียวกัน
-3. แปลง dict → **JSON string** → ส่งให้ AI
-4. AI ตอบ JSON → parse กลับเป็น dict
-5. Execute orders ตาม dict
-6. **หลัง loop เสร็จ**: insert ทั้งก้อนลง Supabase (async, ไม่ block)
-
-> **ไม่เขียนไฟล์ JSON ลง disk** — ช้าเกินไป. Dict ใน RAM เร็วกว่า 1000x
-> **ไม่อ่าน Supabase ระหว่าง loop** — ใช้แค่ตอน insert หลังจบ
-
----
-
-## ⚖️ Safety SL/TP (กัน 5 นาทีที่ไม่ทำงาน)
+### Safety SL/TP
 
 | ประเภท | ค่า | เหตุผล |
 |--------|-----|--------|
-| **Safety SL** | AI กำหนดเอง | fallback: -8% (Fixed) |
-| **Safety TP** | AI กำหนดเอง | fallback: +15% (Fixed) |
+| **SL** | AI กำหนดตาม technical level | ต้อง <= -5% (hardcoded cap) |
+| **TP** | AI กำหนดตาม technical level | ขึ้นกับ ATR + resistance |
+| **Fallback SL** | -3% | ถ้า AI ไม่ระบุ/ระบุเกิน |
+| **Fallback TP** | +6% | ถ้า AI ไม่ระบุ |
 
-> **สำคัญ**: AI เลิกใช้ Fixed % แล้ว — AI ต้องระบุราคา SL/TP ที่เหมาะสมตาม Technical Analysis (Support/Resistance)
-> แต่ถ้า AI ไม่ระบุ หรือระบุผิด → ระบบจะใช้ Fallback (-8%/+15%) เพื่อความปลอดภัย
-> AI อาจปิดที่ -3% ถ้าเห็นว่า trend ไม่ดี หรือถือต่อถ้ามั่นใจ — ไม่ fix ตายตัว
-
----
-
-## 🪙 เหรียญ 8 ตัว + Dynamic Discovery
-
-**8 เหรียญหลัก**: BTC, ETH, SOL, BNB, XRP, DOGE, AVAX, LINK
-
-**+ Dynamic**: ถ้ามีเหรียญพุ่ง/ลงแรงผิดปกติ → เพิ่มชั่วคราว (ดึง Binance top movers)
-
-### Correlation:
-- BTC+ETH ขึ้นพร้อมกัน = ดี! ทิศเดียวกัน → เปิดได้
-- จะ short สวนกระแส? → AI ตรวจ: ถ้ามั่นใจ+มีเหตุผลชัด → เปิดได้ / ไม่มั่นใจ → ข้าม
+> SL/TP ตั้งบน Binance เป็น order จริง → ป้องกันช่วง 5 นาทีที่ bot ไม่ทำงาน
 
 ---
 
-## 🤖 AI Model เปรียบเทียบ
+## AI Model
 
-| Model | Input/MTok | Output/MTok | ต่อ call | ต่อเดือน (288/วัน) | ดีตรงไหน | เหมาะกับเรา? |
-|-------|-----------|------------|---------|-------------------|----------|-------------|
-| **Groq Llama 3.3 70B** | $0.59 | $0.79 | ~$0.002 | **~$17** | ฉลาดกว่า 8B มาก | ✅ **แนะนำเริ่ม** |
-| **DeepSeek V3.2** | $0.28 | $0.42 | ~$0.001 | **~$8** | ถูกมาก, วิเคราะห์เก่ง | ✅ ถูกที่สุดที่ฉลาด |
-| **Kimi K2.5** | $0.60 | $2.50 | ~$0.003 | **~$25** | context window ใหญ่ 262K | ⚠️ แพงกว่า DeepSeek |
-| **Gemini 2.5 Flash** | $0.30 | $2.50 | ~$0.002 | **~$17** | reasoning ดี | ✅ ทางเลือก |
-| **Claude Haiku 3.5** | $0.80 | $4.00 | ~$0.004 | **~$35** | วิเคราะห์ละเอียด | ⚠️ แพงขึ้น |
+| Model | ต่อเดือน (288 calls/วัน) | เหมาะกับ |
+|-------|--------------------------|----------|
+| **Groq Llama 3.3 70B** | ~$17 | แนะนำเริ่ม — เร็ว ฉลาด |
+| **DeepSeek V3.2** | ~$8 | ถูกที่สุดที่ฉลาด |
+| **Gemini 2.5 Flash** | ~$17 | reasoning ดี |
+| **Claude Haiku 3.5** | ~$35 | วิเคราะห์ละเอียด |
 
-### สรุปแนะนำ:
-1. **เริ่มต้น**: Groq Llama 8B (FREE) → ทดสอบระบบก่อน
-2. **ใช้จริง**: **DeepSeek V3.2** (~$8/เดือน) หรือ **Groq 70B** (~$17/เดือน) — คุ้มค่าที่สุด
-3. **อยากแม่นกว่า**: Claude Haiku (~$35/เดือน) — reasoning ดีกว่า
-4. **Kimi K2.5** (~$25/เดือน) — ดีแต่ DeepSeek ถูกกว่าและเก่งเท่ากัน
-
-> **ระบบ configurable**: เปลี่ยน model ได้ใน .env ไม่ต้องแก้โค้ด
+> เหรียญเดียว = token น้อยลง ~60% → ค่า AI ถูกลงด้วย
+> Configurable: เปลี่ยน model ได้ใน .env
 
 ---
 
-## 📰 แหล่งข่าว 20 ข่าว
+## Supabase Schema
 
-| # | Source | วิธีดึง | Rate Limit | Block Bot? |
-|---|--------|--------|-----------|------------|
-| 2 | **Stealth Scraping** | Requests + Fake UA | จำกัดบ้าง | ⚠️ (ใช้ RSS แทนได้) |
-| 3 | **RSS Feeds** | Feedparser (XML) | ไม่จำกัด | ❌ |
+### เพิ่มตาราง `strategy_scores` (NEW)
 
-ดึงข่าว crypto รวม (ไม่แยกเหรียญ) → 20 ข่าว + timestamp + source
-
----
-
-## 📊 Indicators 12 ตัว
-
-| # | ชื่อ | คืออะไร | ใช้ทำอะไร |
-|---|------|--------|----------|
-| 1 | **EMA 9/21/55** | เส้นค่าเฉลี่ยเคลื่อนที่ (ถ่วงน้ำหนักล่าสุด) | จับ trend + crossover signals |
-| 2 | **RSI 14** | วัดแรงซื้อ/ขาย (0-100) | >70 overbought, <30 oversold |
-| 3 | **MACD** | momentum 2 เส้น | crossover = เปลี่ยน momentum |
-| 4 | **Bollinger Bands** | แถบ volatility รอบราคา | ชน band = อาจกลับตัว |
-| 5 | **ATR 14** | ความผันผวนเฉลี่ย ($) | กำหนด Safety SL/TP dynamic |
-| 6 | **VWAP** | ราคาเฉลี่ยถ่วง volume | ดู institutional level |
-| 7 | **ADX** | ความแรง trend (0-100) | >25 trend ชัด, <20 sideway |
-| 8 | **Stoch RSI** | RSI ของ RSI (ไวกว่า) | จับกลับตัวสั้นๆ เร็ว |
-| 9 | **OBV** | volume สะสม | divergence = ราคาอาจกลับ |
-| 10 | **Supertrend** | trend line จาก ATR | เขียว=buy zone, แดง=sell zone |
-| 11 | **Volume Profile** | volume ตามระดับราคา | หา support/resistance จริง |
-| 12 | **EMA 200** (1h) | trend ภาพรวมใหญ่ | ราคา > EMA200 = bullish |
-
----
-
-## 🤖 JSON Format สำหรับ AI
-
-### Input JSON (Code → AI)
-```json
-{
-  "cycle_id": "c_20260211_0100",
-  "timestamp": "2026-02-11T01:00:00Z",
-  "account": {
-    "balance_usdt": 150.42,
-    "available_margin": 120.00,
-    "positions": [
-      {
-        "symbol": "BTCUSDT", "side": "LONG",
-        "binance_order_id": "12345678",
-        "entry_price": 97500, "current_price": 98200,
-        "quantity": 0.002, "margin_usdt": 10, "leverage": 20,
-        "unrealized_pnl": 1.44, "unrealized_pnl_pct": 14.4,
-        "hold_duration_min": 35,
-        "safety_sl_price": 89700, "safety_tp_price": 112125
-      }
-    ],
-    "closed_since_last_cycle": [
-      {
-        "symbol": "ETHUSDT", "side": "SHORT",
-        "closed_by": "STOP_LOSS",
-        "realized_pnl": -2.10, "commission": 0.08,
-        "note": "SL triggered ระหว่างรอบ"
-      }
-    ]
-  },
-  "coins": {
-    "BTCUSDT": {
-      "price": 98200,
-      "indicators_5m": {
-        "ema9": 98150, "ema21": 97900, "ema55": 97500,
-        "rsi14": 65, "stoch_rsi_k": 72, "stoch_rsi_d": 68,
-        "macd": {"line": 120, "signal": 95, "histogram": 25},
-        "bb": {"upper": 98800, "mid": 97700, "lower": 96600, "width": 0.022},
-        "atr14": 350, "atr14_pct": 0.36,
-        "adx": 32, "vwap": 97800,
-        "obv": 125000, "obv_trend": "rising",
-        "supertrend": {"value": 97200, "direction": "up"},
-        "volume_ratio": 1.3
-      },
-      "indicators_15m": {
-        "ema9": 98000, "ema21": 97700, "rsi14": 60,
-        "macd_histogram": 50, "adx": 28
-      },
-      "indicators_1h": {
-        "ema9": 97800, "ema21": 97500, "ema200": 95000,
-        "rsi14": 58, "supertrend_dir": "up"
-      },
-      "regime": "trending_up",
-      "funding_rate": 0.0001,
-      "long_short_ratio": 1.25,
-      "volume_24h_usdt": 1500000000,
-      "price_change_5m_pct": 0.15,
-      "price_change_1h_pct": 0.8,
-      "price_change_24h_pct": 2.3
-    }
-  },
-  "news": [
-    {
-      "title": "Bitcoin ETF sees $500M inflow",
-      "source": "CoinDesk",
-      "timestamp": "2026-02-11T00:45:00Z",
-      "url": "https://..."
-    }
-  ],
-  "fear_greed": {"value": 68, "label": "Greed"},
-  "risk_config": {
-    "balance_tier": "$100-300",
-    "suggested_risk_pct": "5-8%",
-    "min_order_usdt": 5
-  }
-}
-```
-
-### Output JSON (AI → Code)
-```json
-{
-  "analysis": "ตลาด bullish BTC trend ชัด ADX 32...",
-  "actions": [
-    {
-      "symbol": "BTCUSDT",
-      "action": "HOLD",
-      "reason": "กำไร 14.4% แต่ RSI 65 ยังไม่ overbought trend ยังแรง ถือต่อ"
-    },
-    {
-      "symbol": "ETHUSDT",
-      "action": "OPEN_LONG",
-      "margin_usdt": 12,
-      "sl_price": 2850,
-      "tp_price": 3100,
-      "reason": "EMA cross + MACD bullish + ตลาดรวมขึ้น"
-    }
-  ]
-}
-```
-
----
-
-## ⚖️ Risk Management
-
-### Dynamic ตาม Balance
-| Balance | Risk/Trade |
-|---------|-----------|
-| < $50 | 15-20% |
-| $50-100 | 10% |
-| $100-300 | 5-8% |
-| $300-1000 | 3-5% |
-| > $1000 | 2-3% |
-
-- **ไม่มี daily loss limit** — AI ดูสถานการณ์เอง
-- แพ้หลายไม้ → ถ้ามั่นใจ → เล่นต่อ
-
----
-
-## 💾 Supabase Schema (สำหรับ Dashboard ดูย้อนหลัง)
-
-### `cycles` — ทุก cycle ดูได้ว่าทำอะไร
 ```sql
-CREATE TABLE cycles (
+CREATE TABLE strategy_scores (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cycle_number BIGINT NOT NULL,
-    started_at TIMESTAMPTZ NOT NULL,
-    completed_at TIMESTAMPTZ,
-    duration_ms INT,
-    
-    -- Account snapshot ตอนเริ่ม cycle
-    balance_usdt DECIMAL(18,4),
-    available_margin DECIMAL(18,4),
-    positions_count INT,
-    
-    -- สรุปสิ่งที่เกิดขึ้น
-    actions_taken INT DEFAULT 0,        -- AI สั่งกี่ actions
-    orders_opened INT DEFAULT 0,
-    orders_closed INT DEFAULT 0,
-    sl_tp_triggered INT DEFAULT 0,      -- มี SL/TP trigger ระหว่างรอบไหม
-    
-    -- AI
-    ai_model TEXT,
-    ai_latency_ms INT,
-    ai_cost_usd DECIMAL(10,6),
-    
-    -- ข่าว
-    news_count INT,
-    news_is_cached BOOLEAN DEFAULT false,
-    fear_greed_value INT,
-    
-    status TEXT DEFAULT 'running'       -- running/completed/error
+    date DATE NOT NULL,
+    score INT NOT NULL DEFAULT 50,           -- 0-100
+    consecutive_wins INT DEFAULT 0,
+    consecutive_losses INT DEFAULT 0,
+    trades_today INT DEFAULT 0,
+    daily_pnl_usdt DECIMAL(18,4) DEFAULT 0,
+    daily_pnl_pct DECIMAL(8,4) DEFAULT 0,
+    bench_until TIMESTAMPTZ,
+    is_benched BOOLEAN DEFAULT false,
+    updated_at TIMESTAMPTZ DEFAULT now()
 );
 ```
 
-### `cycle_raw_data` — ข้อมูลดิบ+แปลงแล้ว ทุก cycle
-```sql
-CREATE TABLE cycle_raw_data (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cycle_id UUID REFERENCES cycles(id),
-    data_type TEXT NOT NULL,            -- 'indicators_5m'/'indicators_15m'/'indicators_1h'/'news'/'market'/'positions'/'fear_greed'
-    symbol TEXT,                        -- BTCUSDT etc. (null สำหรับ news)
-    raw_json JSONB NOT NULL,            -- ข้อมูลดิบที่ได้มา
-    processed_json JSONB,               -- ข้อมูลหลังคำนวณ
-    source TEXT NOT NULL,               -- 'binance'/'cryptopanic'/'coindesk_rss'
-    source_timestamp TIMESTAMPTZ,       -- timestamp ของข้อมูลจริงจากแหล่ง
-    fetched_at TIMESTAMPTZ NOT NULL     -- เราดึงมาเมื่อไหร่
-);
-```
+### เพิ่มตาราง `self_evaluations` (NEW)
 
-### `ai_decisions` — ดู prompt + AI คิดอะไร ย้อนหลัง
 ```sql
-CREATE TABLE ai_decisions (
+CREATE TABLE self_evaluations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cycle_id UUID REFERENCES cycles(id),
-    model_used TEXT NOT NULL,
-    prompt_tokens INT,
-    completion_tokens INT,
-    cost_usd DECIMAL(10,6),
-    input_json JSONB,                   -- JSON ทั้งก้อนที่ส่ง AI (ดิบ)
-    output_json JSONB,                  -- AI ตอบอะไร (ดิบ)
-    analysis_text TEXT,                 -- AI วิเคราะห์สรุป
-    actions JSONB,                      -- parsed actions
-    latency_ms INT,
+    trade_id UUID REFERENCES trades(id),
+    expected_outcome TEXT,                   -- AI ทำนายไว้ตอนเปิด
+    actual_outcome TEXT,                     -- ผลจริง
+    correct_direction BOOLEAN,
+    lesson TEXT,                              -- AI เรียนรู้อะไร
     created_at TIMESTAMPTZ DEFAULT now()
 );
 ```
 
-### `trades` — ทุก order + Binance data จริง
-```sql
-CREATE TABLE trades (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    cycle_id UUID REFERENCES cycles(id),  -- มาจาก cycle ไหน
-    
-    -- Binance data จริง
-    binance_order_id TEXT,              -- order ID จาก Binance
-    binance_client_order_id TEXT,
-    symbol TEXT NOT NULL,
-    side TEXT NOT NULL,                 -- 'BUY'/'SELL'
-    position_side TEXT,                 -- 'LONG'/'SHORT'
-    order_type TEXT,                    -- 'MARKET'/'LIMIT'
-    
-    -- ราคา
-    entry_price DECIMAL(18,8),
-    exit_price DECIMAL(18,8),
-    quantity DECIMAL(18,8),
-    margin_usdt DECIMAL(18,4),
-    leverage INT DEFAULT 20,
-    
-    -- PnL จาก Binance (ค่าจริง)
-    realized_pnl DECIMAL(18,4),
-    realized_pnl_pct DECIMAL(8,4),
-    commission DECIMAL(18,8),           -- ค่า commission จาก Binance
-    commission_asset TEXT,              -- USDT/BNB
-    
-    -- AI context
-    ai_reason TEXT,                     -- ทำไม AI ถึงเทรด
-    regime TEXT,                        -- trending_up/trending_down/ranging/volatile
-    counter_trend BOOLEAN DEFAULT false,
-    
-    -- ถ้าปิดโดย SL/TP ระหว่างรอบ
-    closed_by TEXT,                     -- 'AI'/'STOP_LOSS'/'TAKE_PROFIT'
-    hold_duration_min INT,
-    
-    -- Safety SL/TP ที่ตั้งไว้
-    sl_price DECIMAL(18,8),
-    tp_price DECIMAL(18,8),
-    
-    action TEXT NOT NULL,               -- 'OPEN'/'CLOSE'
-    executed_at TIMESTAMPTZ NOT NULL,
-    balance_after DECIMAL(18,4)         -- balance หลังเทรดเสร็จ
-);
-```
+### ตารางเดิม (cycles, cycle_raw_data, ai_decisions, trades, daily_summary)
 
-### `daily_summary` — สรุปรายวัน
-```sql
-CREATE TABLE daily_summary (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    date DATE NOT NULL UNIQUE,
-    total_cycles INT,
-    total_trades INT,
-    winning_trades INT, losing_trades INT,
-    win_rate DECIMAL(5,2),
-    total_pnl DECIMAL(18,4),
-    total_commission DECIMAL(18,4),
-    net_pnl DECIMAL(18,4),
-    best_trade DECIMAL(18,4), worst_trade DECIMAL(18,4),
-    avg_hold_min INT, avg_confidence INT,
-    ai_cost_usd DECIMAL(10,4),
-    balance_start DECIMAL(18,4), balance_end DECIMAL(18,4),
-    created_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-> **ดูย้อนหลังได้**: cycle → raw_data → ai_decision → trades → **รู้ว่าแพ้ชนะเพราะอะไร**
+เหมือน v5 แต่เพิ่ม fields:
+- `trades`: เพิ่ม `expected_outcome`, `confidence`, `htf_direction`, `strategy_score_at_trade`
+- `ai_decisions`: เพิ่ม `chain_of_thought`, `confidence`, `validation_result`
+- `cycles`: เพิ่ม `was_benched`, `daily_loss_pct`, `strategy_score`
 
 ---
 
-## 🔧 OpenClaw Skills 6 ตัว
+## Data Flow Summary
 
-| Skill | หน้าที่ |
-|-------|--------|
-| `clawbot-market-data` | ดึงกราฟ 3TF x 8เหรียญ + 12 indicators + regime |
-| `clawbot-news` | ดึง 20 ข่าว + Fear&Greed + timestamp |
-| `clawbot-account` | ดึง balance, positions, ตรวจ SL/TP triggered |
-| `clawbot-execute` | เปิด/ปิด order + ตั้ง safety SL/TP |
-| `clawbot-risk` | คำนวณ position size ตาม balance tier |
-| `clawbot-notify` | Telegram + Discord |
+```
+Cron 5min
+  │
+  ├─ Safety Guard (daily loss? trade count? benched?)
+  │   └─ FAIL → SKIP + notify
+  │
+  ├─ Account Check (balance, positions, PnL, score)
+  │
+  ├─ PARALLEL:
+  │   ├─ BTCUSDT x 4 TF + 12 indicators + HTF alignment
+  │   ├─ News 20 + Fear & Greed
+  │   └─ Whale data (taker, top traders, OI, walls)
+  │
+  ├─ Combine Data + HTF Check
+  │   └─ HTF neutral → tell AI "no new positions"
+  │
+  ├─ AI Deep Analysis (Chain-of-Thought)
+  │   └─ Must explain every step
+  │
+  ├─ Validate Decision (hardcoded rules)
+  │   └─ FAIL → SKIP + log why
+  │
+  ├─ Execute Order (if valid)
+  │   └─ Position capped at 2% equity
+  │
+  └─ Save + Score Update + Self-Evaluate + Notify
+```
 
 ---
 
-## 📁 Project Structure
+## Project Structure (Updated)
 
 ```
 24openClaw/
@@ -858,37 +614,59 @@ CREATE TABLE daily_summary (
 ├── requirements.txt
 ├── .env.example
 ├── supabase_schema.sql
+├── implementation_plan.md           # ← คุณอยู่ที่นี่
 ├── .agent/skills/  (6 skills)
 ├── src/
-│   ├── core/engine.py          # Main loop orchestrator
+│   ├── core/
+│   │   ├── engine.py                # Main loop orchestrator
+│   │   └── safety_guard.py          # NEW: hardcoded rules checker
 │   ├── data/
-│   │   ├── binance_rest.py     # HMAC signed, self-written
-│   │   ├── candle_store.py     # Multi-TF management
-│   │   └── news_fetcher.py     # CryptoPanic + RSS
+│   │   ├── binance_rest.py          # HMAC signed, self-written
+│   │   ├── candle_store.py          # Multi-TF management (1 coin)
+│   │   └── news_fetcher.py          # CryptoPanic + RSS
 │   ├── strategy/
-│   │   ├── indicators.py       # 12 indicators
-│   │   └── regime.py           # Market regime
+│   │   ├── indicators.py            # 12 indicators
+│   │   ├── regime.py                # Market regime
+│   │   └── htf_alignment.py         # NEW: HTF trend alignment check
 │   ├── ai/
-│   │   ├── brain.py            # JSON → AI → JSON
-│   │   └── prompts.py          # Prompt templates
+│   │   ├── brain.py                 # JSON → AI → JSON
+│   │   ├── prompts.py               # NEW prompt with chain-of-thought
+│   │   └── validator.py             # NEW: validate AI decisions
 │   ├── execution/
-│   │   ├── order_manager.py    # Execute + safety SL/TP
-│   │   └── position_tracker.py # Track + detect SL/TP trigger
-│   ├── database/repository.py  # Async Supabase insert
+│   │   ├── order_manager.py         # Execute + safety SL/TP
+│   │   └── position_tracker.py      # Track + detect SL/TP trigger
+│   ├── scoring/
+│   │   ├── strategy_score.py        # NEW: score + decay + bench
+│   │   └── self_evaluation.py       # NEW: expected vs actual
+│   ├── database/repository.py       # Async Supabase insert
 │   └── utils/
 │       ├── config.py
 │       ├── logger.py
-│       ├── cache.py            # Python dict in-memory
-│       └── notifier.py         # Telegram + Discord
+│       ├── cache.py
+│       └── notifier.py
 └── tests/
 ```
 
-## ⚙️ Cron
+---
+
+## Cron
+
 ```bash
 */5 * * * * cd /path/24openClaw && python main.py >> logs/cron.log 2>&1
 ```
 
 ## Verification
-1. `python main.py --dry-run`
-2. Binance Testnet 24h
-3. Live: margin $4-5 (start small)
+
+1. `python main.py --dry-run` → ทดสอบไม่เทรดจริง
+2. Binance Testnet 24-48h → ดู strategy score + win rate
+3. Live: margin $50 (เริ่มเล็ก, max 2% = $1/เทรด)
+4. ดู self-evaluation → ปรับ prompt ถ้า AI ทำนายผิดบ่อย
+
+---
+
+## อนาคต (Phase 2)
+
+เมื่อ BTC profitable แล้ว (win rate > 55%, 2 สัปดาห์+):
+- เพิ่ม **ETHUSDT** เป็นเหรียญที่ 2
+- แยก AI analysis เป็น 2 calls (BTC + ETH) ไม่ใช่ยัดรวม
+- Score system แยกต่างหากต่อเหรียญ
