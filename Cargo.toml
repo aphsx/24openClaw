@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/common",
+    "crates/network",
+    "crates/signals",
+    "crates/scanner",
+    "bins/scanner",
+]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.36", features = ["full"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Config
+toml = "0.8"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Collections
+ordered-float = "4.2"
+
+# URL
+url = "2.5"

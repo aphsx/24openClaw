@@ -1,0 +1,39 @@
+[general]
+scan_duration_hours = 24.0
+snapshot_interval_ms = 200
+cross_corr_interval_sec = 30
+cross_corr_window = 1500
+
+[validation]
+min_lag_ms = 80.0
+max_lag_ms = 500.0
+min_correlation = 0.60
+max_lag_cv = 0.40
+max_spread_bps = 15.0
+min_alpha_cost_ratio = 2.5
+min_depth_usd = 100000.0
+
+# เหรียญที่จะ scan — เลือกจาก top volume alt coins
+# ไม่รวม BTC (ใช้เป็น Oracle) และ stablecoins
+universe = [
+    "ETHUSDT",
+    "SOLUSDT",
+    "LINKUSDT",
+    "AVAXUSDT",
+    "ADAUSDT",
+    "DOTUSDT",
+    "MATICUSDT",
+    "NEARUSDT",
+    "FILUSDT",
+    "APTUSDT",
+    "ARBUSDT",
+    "OPUSDT",
+    "SUIUSDT",
+    "INJUSDT",
+    "TIAUSDT",
+    "SEIUSDT",
+    "JUPUSDT",
+    "WLDUSDT",
+    "RUNEUSDT",
+    "FETUSDT",
+]

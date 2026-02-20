@@ -24,26 +24,16 @@ ENV/
 logs/
 *.log
 
-# Data files (keep structure, ignore content)
-data/raw/*.json
-data/processed/*.json
+# Application Data (Raw output from scanner goes in root 'data' dir)
+data/*
+!data/.gitkeep
+
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
 
 # OS files
 .DS_Store
 Thumbs.db
 
-# Node modules (for PM2)
-node_modules/
-
-# Distribution
-dist/
-build/
-*.egg-info/
-
-# Playwright
-.playwright/
-
-# Test
-.pytest_cache/
-.coverage
-htmlcov/

@@ -1,0 +1,10 @@
+[package]
+name = "zeroclaw-signals"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zeroclaw-common = { path = "../common" }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+ordered-float = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "zeroclaw-scanner-bin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zeroclaw-common = { path = "../../crates/common" }
+zeroclaw-network = { path = "../../crates/network" }
+zeroclaw-signals = { path = "../../crates/signals" }
+zeroclaw-scanner = { path = "../../crates/scanner" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+serde_json = { workspace = true }
