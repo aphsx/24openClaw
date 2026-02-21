@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 // ============================================================
-// Price Level: 1 ระดับของ LOB (ราคา + ปริมาณ)
+// Price Level: 1 level of LOB (price + quantity)
 // ============================================================
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct PriceLevel {
@@ -12,16 +12,13 @@ pub struct PriceLevel {
 }
 
 // ============================================================
-// OrderBook: LOB ทั้งหมดของ 1 exchange 1 เหรียญ
-// BTreeMap เรียงลำดับราคาอัตโนมัติ
+// OrderBook: Full LOB for 1 exchange 1 symbol
 // ============================================================
 #[derive(Debug, Clone)]
 pub struct OrderBook {
-    // key = price (OrderedFloat เพื่อใช้ใน BTreeMap ได้)
-    // value = quantity
-    pub bids: BTreeMap<OrderedFloat<f64>, f64>,  // ซื้อ: เรียงจากสูงไปต่ำ
-    pub asks: BTreeMap<OrderedFloat<f64>, f64>,  // ขาย: เรียงจากต่ำไปสูง
-    pub timestamp_us: u64,                        // microseconds
+    pub bids: BTreeMap<OrderedFloat<f64>, f64>,
+    pub asks: BTreeMap<OrderedFloat<f64>, f64>,
+    pub timestamp_us: u64,
     pub exchange: Exchange,
     pub symbol: String,
 }
@@ -37,7 +34,6 @@ impl OrderBook {
         }
     }
 
-    // Best bid = ราคาซื้อสูงสุด
     pub fn best_bid(&self) -> Option<PriceLevel> {
         self.bids.iter().next_back().map(|(p, q)| PriceLevel {
             price: p.into_inner(),
@@ -45,7 +41,6 @@ impl OrderBook {
         })
     }
 
-    // Best ask = ราคาขายต่ำสุด
     pub fn best_ask(&self) -> Option<PriceLevel> {
         self.asks.iter().next().map(|(p, q)| PriceLevel {
             price: p.into_inner(),
@@ -53,7 +48,6 @@ impl OrderBook {
         })
     }
 
-    // Mid price = (best_bid + best_ask) / 2
     pub fn mid_price(&self) -> Option<f64> {
         match (self.best_bid(), self.best_ask()) {
             (Some(bid), Some(ask)) => Some((bid.price + ask.price) / 2.0),
@@ -61,7 +55,6 @@ impl OrderBook {
         }
     }
 
-    // Spread = best_ask - best_bid
     pub fn spread(&self) -> Option<f64> {
         match (self.best_bid(), self.best_ask()) {
             (Some(bid), Some(ask)) => Some(ask.price - bid.price),
@@ -69,7 +62,6 @@ impl OrderBook {
         }
     }
 
-    // Spread เป็น % ของ mid price
     pub fn spread_bps(&self) -> Option<f64> {
         match (self.spread(), self.mid_price()) {
             (Some(spread), Some(mid)) if mid > 0.0 => Some(spread / mid * 10000.0),
@@ -77,11 +69,10 @@ impl OrderBook {
         }
     }
 
-    // ดึง top N levels ของ bid
     pub fn top_bids(&self, n: usize) -> Vec<PriceLevel> {
         self.bids
             .iter()
-            .rev()  // BTreeMap เรียงจากน้อยไปมาก, rev = มากไปน้อย
+            .rev()
             .take(n)
             .map(|(p, q)| PriceLevel {
                 price: p.into_inner(),
@@ -90,10 +81,9 @@ impl OrderBook {
             .collect()
     }
 
-    // ดึง top N levels ของ ask
     pub fn top_asks(&self, n: usize) -> Vec<PriceLevel> {
         self.asks
-            .iter()  // BTreeMap เรียงจากน้อยไปมาก = ask ต่ำสุดมาก่อน
+            .iter()
             .take(n)
             .map(|(p, q)| PriceLevel {
                 price: p.into_inner(),
@@ -102,17 +92,14 @@ impl OrderBook {
             .collect()
     }
 
-    // Total volume ของ bid N levels
     pub fn bid_depth(&self, n: usize) -> f64 {
         self.bids.iter().rev().take(n).map(|(_, q)| q).sum()
     }
 
-    // Total volume ของ ask N levels
     pub fn ask_depth(&self, n: usize) -> f64 {
         self.asks.iter().take(n).map(|(_, q)| q).sum()
     }
 
-    // Update จาก snapshot (ลบทั้งหมด แล้วใส่ใหม่)
     pub fn update_from_snapshot(
         &mut self,
         bids: Vec<PriceLevel>,
@@ -123,20 +110,17 @@ impl OrderBook {
         self.asks.clear();
         for level in bids {
             if level.quantity > 0.0 {
-                self.bids
-                    .insert(OrderedFloat(level.price), level.quantity);
+                self.bids.insert(OrderedFloat(level.price), level.quantity);
             }
         }
         for level in asks {
             if level.quantity > 0.0 {
-                self.asks
-                    .insert(OrderedFloat(level.price), level.quantity);
+                self.asks.insert(OrderedFloat(level.price), level.quantity);
             }
         }
         self.timestamp_us = timestamp_us;
     }
 
-    // Update single level (qty=0 = ลบ level นั้น)
     pub fn update_bid(&mut self, price: f64, quantity: f64) {
         let key = OrderedFloat(price);
         if quantity <= 0.0 {
@@ -157,14 +141,14 @@ impl OrderBook {
 }
 
 // ============================================================
-// Trade Event: 1 trade ที่เกิดขึ้น
+// Trade Event
 // ============================================================
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradeEvent {
-    pub timestamp_us: u64,      // microseconds
+    pub timestamp_us: u64,
     pub price: f64,
     pub quantity: f64,
-    pub is_buyer_maker: bool,   // true = seller took, false = buyer took
+    pub is_buyer_maker: bool,
     pub exchange: Exchange,
     pub symbol: String,
 }
@@ -190,42 +174,74 @@ impl std::fmt::Display for Exchange {
 }
 
 // ============================================================
-// LOB Snapshot: ภาพถ่ายของ LOB ณ จุดเวลาหนึ่ง
-// เก็บสำหรับ cross-correlation calculation
+// LOB Snapshot
 // ============================================================
 #[derive(Debug, Clone)]
 pub struct LOBSnapshot {
     pub timestamp_us: u64,
     pub mid_price: f64,
     pub spread_bps: f64,
-    pub bid_depth_5: f64,    // total bid volume top 5 levels
-    pub ask_depth_5: f64,    // total ask volume top 5 levels
+    pub bid_depth_5: f64,
+    pub ask_depth_5: f64,
     pub exchange: Exchange,
     pub symbol: String,
 }
 
 // ============================================================
-// Coin Metrics: ผลลัพธ์การวิเคราะห์ 1 เหรียญ
+// Coin Metrics: analysis result for 1 coin (expanded with all signals)
 // ============================================================
 #[derive(Debug, Clone, Serialize)]
 pub struct CoinMetrics {
     pub symbol: String,
-    pub lead_lag_ms: f64,           // optimal lag ในหน่วย ms
-    pub lead_lag_correlation: f64,  // peak cross-correlation
-    pub lead_lag_cv: f64,           // coefficient of variation ของ lag
-    pub avg_spread_bps: f64,        // average spread in basis points
-    pub avg_volume_24h_usd: f64,    // estimated 24h volume in USD
-    pub bid_depth_usd: f64,         // average bid depth 5 levels in USD
-    pub ask_depth_usd: f64,         // average ask depth 5 levels in USD
-    pub obi_mean: f64,              // mean Order Book Imbalance
-    pub obi_std: f64,               // std of OBI (ยิ่งสูง = มี signal)
-    pub cos_score: f64,             // Composite Opportunity Score (0-100)
-    pub verdict: String,            // "STRONG", "CANDIDATE", "REJECTED"
+
+    // Lead-Lag
+    pub lead_lag_ms: f64,
+    pub lead_lag_correlation: f64,
+    pub lead_lag_cv: f64,
+    pub lead_lag_direction: String,
+
+    // Spread
+    pub avg_spread_bps: f64,
+
+    // Volume
+    pub avg_volume_24h_usd: f64,
+
+    // Depth
+    pub bid_depth_usd: f64,
+    pub ask_depth_usd: f64,
+
+    // OBI
+    pub obi_mean: f64,
+    pub obi_std: f64,
+
+    // MLOFI
+    pub mlofi_signal_strength: f64,
+    pub mlofi_binance_mean: f64,
+    pub mlofi_bybit_mean: f64,
+
+    // TFI
+    pub tfi_agreement_ratio: f64,
+    pub tfi_binance_mean: f64,
+    pub tfi_bybit_mean: f64,
+
+    // Microprice
+    pub microprice_divergence_mean_bps: f64,
+    pub microprice_divergence_std_bps: f64,
+
+    // Volatility
+    pub realized_volatility: f64,
+
+    // Trade Intensity
+    pub trade_intensity_usd_per_sec: f64,
+
+    // Scoring
+    pub cos_score: f64,
+    pub verdict: String,
     pub rejection_reason: Option<String>,
 }
 
 // ============================================================
-// Scanner Report: ผลลัพธ์รวมของ scanner
+// Scanner Report
 // ============================================================
 #[derive(Debug, Clone, Serialize)]
 pub struct ScannerReport {
@@ -234,6 +250,6 @@ pub struct ScannerReport {
     pub duration_hours: f64,
     pub coins_scanned: usize,
     pub coins_passed: usize,
-    pub results: Vec<CoinMetrics>,  // เรียงตาม COS score จากมากไปน้อย
+    pub results: Vec<CoinMetrics>,
     pub recommendation: String,
 }

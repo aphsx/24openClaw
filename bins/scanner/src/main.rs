@@ -1,25 +1,63 @@
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::info;
 use tradingclaw_common::config::ScannerConfig;
 use tradingclaw_common::types::*;
 use tradingclaw_network::{binance, bybit};
-use tradingclaw_signals::{cross_corr::CrossCorrCalculator, mlofi::MlofiCalculator, obi, spread::SpreadTracker, tfi::TfiCalculator};
+use tradingclaw_signals::{
+    cross_corr::CrossCorrCalculator,
+    microprice,
+    mlofi::MlofiCalculator,
+    obi,
+    spread::SpreadTracker,
+    tfi::TfiCalculator,
+    trade_intensity::TradeIntensityTracker,
+    volatility::VolatilityTracker,
+};
 use tradingclaw_scanner::{cos, report};
 
-/// State ของแต่ละเหรียญ
+/// Maximum rolling window for signal value storage (prevents unbounded growth)
+const MAX_SIGNAL_WINDOW: usize = 50_000;
+
+/// Per-coin state with ALL signal calculators and value storage.
 struct CoinState {
+    // Order books
     binance_book: OrderBook,
     bybit_book: OrderBook,
+
+    // MLOFI calculators (both exchanges)
     mlofi_binance: MlofiCalculator,
     mlofi_bybit: MlofiCalculator,
+
+    // TFI calculators (both exchanges)
     tfi_binance: TfiCalculator,
+    tfi_bybit: TfiCalculator,
+
+    // Cross-correlation (bidirectional)
     cross_corr: CrossCorrCalculator,
+
+    // Spread tracker
     spread_tracker: SpreadTracker,
-    obi_values: Vec<f64>,          // เก็บ OBI ทุก snapshot
-    lead_lag_results: Vec<(f64, f64)>, // (lag_ms, correlation) ทุกรอบ
+
+    // Volatility tracker
+    volatility_tracker: VolatilityTracker,
+
+    // Trade intensity trackers (both exchanges)
+    trade_intensity_binance: TradeIntensityTracker,
+    trade_intensity_bybit: TradeIntensityTracker,
+
+    // Rolling signal value storage (bounded VecDeque)
+    obi_values: VecDeque<f64>,
+    mlofi_binance_values: VecDeque<f64>,
+    mlofi_bybit_values: VecDeque<f64>,
+    tfi_binance_values: VecDeque<f64>,
+    tfi_bybit_values: VecDeque<f64>,
+    microprice_divergences: VecDeque<f64>,
+
+    // Lead-lag results history
+    lead_lag_results: Vec<(f64, f64)>,
 }
 
 #[tokio::main]
@@ -30,13 +68,21 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    info!("=== TRADINGCLAW SCANNER v0.1 ===");
+    info!("=== TRADINGCLAW SCANNER v2.0 ===");
+    info!("7-Criterion COS | Bidirectional Lead-Lag | Microprice | All Signals Active");
 
-    // ===== Load config =====
-    let config = ScannerConfig::default();  // TODO: load from scanner.toml
+    // ===== Load config from TOML (fallback to defaults) =====
+    let config = ScannerConfig::load("config/scanner.toml");
     let symbols = config.universe.clone();
 
     info!("Scanning {} coins: {:?}", symbols.len(), symbols);
+    info!(
+        "Config: duration={:.1}h, corr_interval={}s, min_corr={:.2}, min_lag={}ms",
+        config.general.scan_duration_hours,
+        config.general.cross_corr_interval_sec,
+        config.validation.min_correlation,
+        config.validation.min_lag_ms,
+    );
 
     // ===== Initialize per-coin state =====
     let state: Arc<Mutex<HashMap<String, CoinState>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -52,9 +98,18 @@ async fn main() -> Result<()> {
                     mlofi_binance: MlofiCalculator::new(0.3, 10, 5000),
                     mlofi_bybit: MlofiCalculator::new(0.3, 10, 5000),
                     tfi_binance: TfiCalculator::new(100),
+                    tfi_bybit: TfiCalculator::new(100),
                     cross_corr: CrossCorrCalculator::new(config.general.cross_corr_window),
                     spread_tracker: SpreadTracker::new(10000),
-                    obi_values: Vec::new(),
+                    volatility_tracker: VolatilityTracker::new(5000),
+                    trade_intensity_binance: TradeIntensityTracker::new(5.0, 60.0),
+                    trade_intensity_bybit: TradeIntensityTracker::new(5.0, 60.0),
+                    obi_values: VecDeque::with_capacity(MAX_SIGNAL_WINDOW),
+                    mlofi_binance_values: VecDeque::with_capacity(MAX_SIGNAL_WINDOW),
+                    mlofi_bybit_values: VecDeque::with_capacity(MAX_SIGNAL_WINDOW),
+                    tfi_binance_values: VecDeque::with_capacity(MAX_SIGNAL_WINDOW),
+                    tfi_bybit_values: VecDeque::with_capacity(MAX_SIGNAL_WINDOW),
+                    microprice_divergences: VecDeque::with_capacity(MAX_SIGNAL_WINDOW),
                     lead_lag_results: Vec::new(),
                 },
             );
@@ -80,27 +135,28 @@ async fn main() -> Result<()> {
         }
     });
 
-    // ===== Cross-correlation calculation timer =====
+    // ===== Cross-correlation timer =====
     let state_clone = state.clone();
     let corr_interval = config.general.cross_corr_interval_sec;
+    let min_lag = config.validation.min_lag_ms;
+    let max_lag = config.validation.max_lag_ms;
     tokio::spawn(async move {
-        // รอให้เก็บ data สัก 60 วินาทีก่อน
         tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        info!("Starting cross-correlation calculations...");
+        info!("Starting cross-correlation calculations (bidirectional)...");
 
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(corr_interval)).await;
 
             let mut s = state_clone.lock().unwrap();
             for (symbol, coin) in s.iter_mut() {
-                if let Some(result) = coin.cross_corr.calculate(50.0, 500.0, 10.0) {
+                if let Some(result) = coin.cross_corr.calculate(min_lag, max_lag, 10.0) {
                     coin.lead_lag_results.push((
                         result.optimal_lag_ms,
                         result.peak_correlation,
                     ));
                     info!(
-                        "{}: lag={:.0}ms, corr={:.3}",
-                        symbol, result.optimal_lag_ms, result.peak_correlation
+                        "{}: lag={:.0}ms, corr={:.3}, dir={}",
+                        symbol, result.optimal_lag_ms, result.peak_correlation, result.direction
                     );
                 }
             }
@@ -112,76 +168,20 @@ async fn main() -> Result<()> {
     let config_clone = config.clone();
     tokio::spawn(async move {
         loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(300)).await; // ทุก 5 นาที
+            tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
             let s = state_clone.lock().unwrap();
             info!("--- STATUS (Interim Scores) ---");
             for (symbol, coin) in s.iter() {
-                // คำนวณ lead-lag statistics เบื้องต้น
-                let (_avg_lag, _avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
-                    let lags: Vec<f64> = coin.lead_lag_results.iter().map(|(l, _)| *l).collect();
-                    let corrs: Vec<f64> = coin.lead_lag_results.iter().map(|(_, c)| *c).collect();
-
-                    let avg_lag = lags.iter().sum::<f64>() / lags.len() as f64;
-                    let avg_corr = corrs.iter().sum::<f64>() / corrs.len() as f64;
-
-                    let lag_std = if lags.len() > 1 {
-                        let mean = avg_lag;
-                        (lags.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / (lags.len() - 1) as f64).sqrt()
-                    } else {
-                        0.0
-                    };
-                    let lag_cv = if avg_lag > 0.0 { lag_std / avg_lag } else { 1.0 };
-
-                    (avg_lag, avg_corr, lag_cv)
-                } else {
-                    (0.0, 0.0, 1.0)
-                };
-
-                // OBI statistics เบื้องต้น
-                let obi_mean = if !coin.obi_values.is_empty() {
-                    coin.obi_values.iter().sum::<f64>() / coin.obi_values.len() as f64
-                } else {
-                    0.0
-                };
-                let obi_std = if coin.obi_values.len() > 1 {
-                    let mean = obi_mean;
-                    (coin.obi_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                        / (coin.obi_values.len() - 1) as f64)
-                        .sqrt()
-                } else {
-                    0.0
-                };
-
-                // Depth in USD (approximate) เบื้องต้น
-                let mid = coin.bybit_book.mid_price().unwrap_or(1.0);
-                let bid_depth_usd = coin.bybit_book.bid_depth(5) * mid;
-                let ask_depth_usd = coin.bybit_book.ask_depth(5) * mid;
-
-                // ไม่ต้อง clone เพราะ cross_corr.calculate() ใช้ &self ไม่ได้ขโมย ownership
-                let current_result = coin.cross_corr.calculate(50.0, 500.0, 10.0);
-
-                let metrics = cos::calculate_cos(
-                    symbol,
-                    &current_result,
-                    lag_cv,
-                    coin.spread_tracker.mean(),
-                    0.0, // volume estimate
-                    bid_depth_usd,
-                    ask_depth_usd,
-                    obi_mean,
-                    obi_std,
-                    &config_clone.validation,
-                );
-
-                let spread = coin.spread_tracker.mean();
-                let ll_count = coin.lead_lag_results.len();
-
+                let metrics = compute_coin_metrics(symbol, coin, &config_clone);
                 info!(
-                    "{}: SCORE={:.1}/100 | spread={:.1}bps, lead-lag samples={}",
+                    "{}: COS={:.1}/100 [{}] | spread={:.1}bps, mlofi={:.3}, ll_samples={}, dir={}",
                     symbol,
                     metrics.cos_score,
-                    spread,
-                    ll_count
+                    metrics.verdict,
+                    metrics.avg_spread_bps,
+                    metrics.mlofi_signal_strength,
+                    coin.lead_lag_results.len(),
+                    metrics.lead_lag_direction,
                 );
             }
         }
@@ -198,7 +198,7 @@ async fn main() -> Result<()> {
 
     loop {
         tokio::select! {
-            // Process Binance messages
+            // ===== Process Binance messages =====
             Some(msg) = binance_rx.recv() => {
                 let mut s = state.lock().unwrap();
                 match msg {
@@ -206,28 +206,45 @@ async fn main() -> Result<()> {
                         if let Some(coin) = s.get_mut(&symbol) {
                             coin.binance_book.update_from_snapshot(bids, asks, timestamp_us);
 
-                            // คำนวณ MLOFI
-                            let (_raw, _norm) = coin.mlofi_binance.update(&coin.binance_book);
+                            // MLOFI — store the normalized value
+                            let (_raw, norm) = coin.mlofi_binance.update(&coin.binance_book);
+                            push_bounded(&mut coin.mlofi_binance_values, norm.abs());
 
-                            // คำนวณ OBI
+                            // OBI
                             let obi_val = obi::calculate_obi(&coin.binance_book, 5);
-                            coin.obi_values.push(obi_val);
+                            push_bounded(&mut coin.obi_values, obi_val);
 
-                            // เก็บ mid price สำหรับ cross-correlation
-                            if let Some(mid) = coin.binance_book.mid_price() {
-                                coin.cross_corr.add_leader_price(timestamp_us, mid);
+                            // Microprice for cross-correlation (superior to mid-price)
+                            if let Some(mp) = microprice::calculate_microprice(&coin.binance_book) {
+                                coin.cross_corr.add_leader_price(timestamp_us, mp);
+                                coin.volatility_tracker.update(timestamp_us, mp);
+                            }
+
+                            // Microprice divergence between exchanges
+                            if let Some(div) = microprice::microprice_divergence_bps(
+                                &coin.binance_book,
+                                &coin.bybit_book,
+                            ) {
+                                push_bounded(&mut coin.microprice_divergences, div.abs());
                             }
                         }
                     }
                     binance::BinanceMessage::Trade(trade) => {
                         if let Some(coin) = s.get_mut(&trade.symbol) {
-                            let _tfi = coin.tfi_binance.update(&trade);
+                            let tfi = coin.tfi_binance.update(&trade);
+                            push_bounded(&mut coin.tfi_binance_values, tfi);
+
+                            coin.trade_intensity_binance.add_trade(
+                                trade.timestamp_us,
+                                trade.price,
+                                trade.quantity,
+                            );
                         }
                     }
                 }
             }
 
-            // Process Bybit messages
+            // ===== Process Bybit messages =====
             Some(msg) = bybit_rx.recv() => {
                 let mut s = state.lock().unwrap();
                 match msg {
@@ -235,22 +252,27 @@ async fn main() -> Result<()> {
                         if let Some(coin) = s.get_mut(&symbol) {
                             coin.bybit_book.update_from_snapshot(bids, asks, timestamp_us);
 
-                            let (_raw, _norm) = coin.mlofi_bybit.update(&coin.bybit_book);
+                            let (_raw, norm) = coin.mlofi_bybit.update(&coin.bybit_book);
+                            push_bounded(&mut coin.mlofi_bybit_values, norm.abs());
 
-                            // เก็บ spread
                             if let Some(spread_bps) = coin.bybit_book.spread_bps() {
                                 coin.spread_tracker.add(spread_bps);
                             }
 
-                            // เก็บ mid price สำหรับ cross-correlation (follower)
-                            if let Some(mid) = coin.bybit_book.mid_price() {
-                                coin.cross_corr.add_follower_price(timestamp_us, mid);
+                            if let Some(mp) = microprice::calculate_microprice(&coin.bybit_book) {
+                                coin.cross_corr.add_follower_price(timestamp_us, mp);
+                            }
+
+                            if let Some(div) = microprice::microprice_divergence_bps(
+                                &coin.binance_book,
+                                &coin.bybit_book,
+                            ) {
+                                push_bounded(&mut coin.microprice_divergences, div.abs());
                             }
                         }
                     }
                     bybit::BybitMessage::DepthDelta { symbol, bids, asks, timestamp_us } => {
                         if let Some(coin) = s.get_mut(&symbol) {
-                            // Delta update: update individual levels
                             for level in &bids {
                                 coin.bybit_book.update_bid(level.price, level.quantity);
                             }
@@ -259,26 +281,44 @@ async fn main() -> Result<()> {
                             }
                             coin.bybit_book.timestamp_us = timestamp_us;
 
-                            let (_raw, _norm) = coin.mlofi_bybit.update(&coin.bybit_book);
+                            let (_raw, norm) = coin.mlofi_bybit.update(&coin.bybit_book);
+                            push_bounded(&mut coin.mlofi_bybit_values, norm.abs());
 
                             if let Some(spread_bps) = coin.bybit_book.spread_bps() {
                                 coin.spread_tracker.add(spread_bps);
                             }
 
-                            if let Some(mid) = coin.bybit_book.mid_price() {
-                                coin.cross_corr.add_follower_price(timestamp_us, mid);
+                            if let Some(mp) = microprice::calculate_microprice(&coin.bybit_book) {
+                                coin.cross_corr.add_follower_price(timestamp_us, mp);
+                            }
+
+                            if let Some(div) = microprice::microprice_divergence_bps(
+                                &coin.binance_book,
+                                &coin.bybit_book,
+                            ) {
+                                push_bounded(&mut coin.microprice_divergences, div.abs());
                             }
                         }
                     }
-                    bybit::BybitMessage::Trade(_trade) => {
-                        // เก็บไว้ถ้าต้องการ
+                    bybit::BybitMessage::Trade(trade) => {
+                        if let Some(coin) = s.get_mut(&trade.symbol) {
+                            // TFI — NOW PROCESSED (was ignored before)
+                            let tfi = coin.tfi_bybit.update(&trade);
+                            push_bounded(&mut coin.tfi_bybit_values, tfi);
+
+                            coin.trade_intensity_bybit.add_trade(
+                                trade.timestamp_us,
+                                trade.price,
+                                trade.quantity,
+                            );
+                        }
                     }
                 }
             }
 
             // Scan duration expired
             _ = tokio::time::sleep_until(deadline) => {
-                info!("Scan duration reached. Generating report...");
+                info!("Scan duration reached. Generating final report...");
                 break;
             }
         }
@@ -291,62 +331,7 @@ async fn main() -> Result<()> {
     let mut results: Vec<CoinMetrics> = Vec::new();
 
     for (symbol, coin) in s.iter() {
-        // คำนวณ lead-lag statistics
-        let (_avg_lag, _avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
-            let lags: Vec<f64> = coin.lead_lag_results.iter().map(|(l, _)| *l).collect();
-            let corrs: Vec<f64> = coin.lead_lag_results.iter().map(|(_, c)| *c).collect();
-
-            let avg_lag = lags.iter().sum::<f64>() / lags.len() as f64;
-            let avg_corr = corrs.iter().sum::<f64>() / corrs.len() as f64;
-
-            let lag_std = if lags.len() > 1 {
-                let mean = avg_lag;
-                (lags.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / (lags.len() - 1) as f64).sqrt()
-            } else {
-                0.0
-            };
-            let lag_cv = if avg_lag > 0.0 { lag_std / avg_lag } else { 1.0 };
-
-            (avg_lag, avg_corr, lag_cv)
-        } else {
-            (0.0, 0.0, 1.0)
-        };
-
-        // OBI statistics
-        let obi_mean = if !coin.obi_values.is_empty() {
-            coin.obi_values.iter().sum::<f64>() / coin.obi_values.len() as f64
-        } else {
-            0.0
-        };
-        let obi_std = if coin.obi_values.len() > 1 {
-            let mean = obi_mean;
-            (coin.obi_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
-                / (coin.obi_values.len() - 1) as f64)
-                .sqrt()
-        } else {
-            0.0
-        };
-
-        // Depth in USD (approximate)
-        let mid = coin.bybit_book.mid_price().unwrap_or(1.0);
-        let bid_depth_usd = coin.bybit_book.bid_depth(5) * mid;
-        let ask_depth_usd = coin.bybit_book.ask_depth(5) * mid;
-
-        let lead_lag_result = coin.cross_corr.calculate(50.0, 500.0, 10.0);
-
-        let metrics = cos::calculate_cos(
-            symbol,
-            &lead_lag_result,
-            lag_cv,
-            coin.spread_tracker.mean(),
-            0.0, // volume estimate (TODO: calculate from trades)
-            bid_depth_usd,
-            ask_depth_usd,
-            obi_mean,
-            obi_std,
-            &config.validation,
-        );
-
+        let metrics = compute_coin_metrics(symbol, coin, &config);
         results.push(metrics);
     }
 
@@ -357,19 +342,25 @@ async fn main() -> Result<()> {
 
     let recommendation = if passed >= 3 {
         format!(
-            "PROCEED — {} coins passed validation.\nPrimary: {}\nStandby: {}, {}\nRecommendation: Start Phase 1 with primary coin.",
+            "PROCEED — {} coins passed validation.\n\
+             Primary: {}\n\
+             Standby: {}, {}\n\
+             Recommendation: Start Phase 1 with primary coin.",
             passed,
-            results.get(0).map(|r| r.symbol.as_str()).unwrap_or("?"),
+            results.first().map(|r| r.symbol.as_str()).unwrap_or("?"),
             results.get(1).map(|r| r.symbol.as_str()).unwrap_or("?"),
             results.get(2).map(|r| r.symbol.as_str()).unwrap_or("?"),
         )
     } else if passed >= 1 {
         format!(
-            "PROCEED WITH CAUTION — Only {} coin(s) passed.\nConsider running scan again at different time of day.",
+            "PROCEED WITH CAUTION — Only {} coin(s) passed.\n\
+             Consider running scan again at different time of day.",
             passed
         )
     } else {
-        "PIVOT STRATEGY — No coins passed validation.\nCEIFA may not be viable. Consider Funding Rate Arbitrage.".to_string()
+        "PIVOT STRATEGY — No coins passed validation.\n\
+         CEIFA may not be viable. Consider Funding Rate Arbitrage."
+            .to_string()
     };
 
     let scanner_report = ScannerReport {
@@ -382,11 +373,9 @@ async fn main() -> Result<()> {
         recommendation,
     };
 
-    // Output
     let text_report = report::generate_text_report(&scanner_report);
     println!("{}", text_report);
 
-    // Save to file
     let json_report = serde_json::to_string_pretty(&scanner_report)?;
     std::fs::create_dir_all("data")?;
     std::fs::write("data/scanner_report.json", &json_report)?;
@@ -395,4 +384,140 @@ async fn main() -> Result<()> {
     info!("Report saved to data/scanner_report.json and data/scanner_report.txt");
 
     Ok(())
+}
+
+/// Compute all metrics for a coin from its accumulated state.
+fn compute_coin_metrics(
+    symbol: &str,
+    coin: &CoinState,
+    config: &ScannerConfig,
+) -> CoinMetrics {
+    // Lead-lag statistics with minimum sample requirement
+    let (lag_cv, ll_count) = if coin.lead_lag_results.len() >= config.validation.min_lead_lag_samples {
+        let lags: Vec<f64> = coin.lead_lag_results.iter().map(|(l, _)| l.abs()).collect();
+        let avg_lag = lags.iter().sum::<f64>() / lags.len() as f64;
+
+        let lag_std = if lags.len() > 1 {
+            (lags.iter().map(|l| (l - avg_lag).powi(2)).sum::<f64>()
+                / (lags.len() - 1) as f64)
+                .sqrt()
+        } else {
+            0.0
+        };
+        let cv = if avg_lag > 0.0 { lag_std / avg_lag } else { 1.0 };
+        (cv, coin.lead_lag_results.len())
+    } else {
+        (1.0, coin.lead_lag_results.len())
+    };
+
+    // OBI statistics
+    let obi_mean = if !coin.obi_values.is_empty() {
+        coin.obi_values.iter().sum::<f64>() / coin.obi_values.len() as f64
+    } else {
+        0.0
+    };
+    let obi_std = if coin.obi_values.len() > 1 {
+        let mean = obi_mean;
+        (coin.obi_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+            / (coin.obi_values.len() - 1) as f64)
+            .sqrt()
+    } else {
+        0.0
+    };
+
+    // MLOFI signal strength
+    let mlofi_bn_mean = vec_mean(&coin.mlofi_binance_values);
+    let mlofi_bb_mean = vec_mean(&coin.mlofi_bybit_values);
+    let mlofi_strength = (mlofi_bn_mean + mlofi_bb_mean) / 2.0;
+
+    // TFI means
+    let tfi_bn_mean = vec_mean(&coin.tfi_binance_values);
+    let tfi_bb_mean = vec_mean(&coin.tfi_bybit_values);
+
+    // TFI agreement ratio
+    let min_len = coin.tfi_binance_values.len().min(coin.tfi_bybit_values.len());
+    let tfi_agreement = if min_len > 0 {
+        let sample_size = min_len.min(1000);
+        let agree_count = coin.tfi_binance_values.iter().rev()
+            .zip(coin.tfi_bybit_values.iter().rev())
+            .take(sample_size)
+            .filter(|(a, b)| {
+                (a.is_sign_positive() && b.is_sign_positive())
+                    || (a.is_sign_negative() && b.is_sign_negative())
+            })
+            .count();
+        agree_count as f64 / sample_size as f64
+    } else {
+        0.5
+    };
+
+    // Microprice divergence
+    let mp_div_mean = vec_mean(&coin.microprice_divergences);
+    let mp_div_std = vec_std(&coin.microprice_divergences, mp_div_mean);
+
+    // Depth in USD
+    let mid = coin.bybit_book.mid_price()
+        .or_else(|| coin.binance_book.mid_price())
+        .unwrap_or(0.0);
+    let bid_depth_usd = coin.bybit_book.bid_depth(5) * mid;
+    let ask_depth_usd = coin.bybit_book.ask_depth(5) * mid;
+
+    // Realized volatility
+    let rv = coin.volatility_tracker.short_term_vol().unwrap_or(0.0);
+
+    // Trade intensity (combined)
+    let intensity = coin.trade_intensity_binance.long_intensity()
+        + coin.trade_intensity_bybit.long_intensity();
+
+    // Cross-correlation
+    let lead_lag_result = coin.cross_corr.calculate(
+        config.validation.min_lag_ms,
+        config.validation.max_lag_ms,
+        10.0,
+    );
+
+    cos::calculate_cos(
+        symbol,
+        &lead_lag_result,
+        lag_cv,
+        ll_count,
+        coin.spread_tracker.mean(),
+        bid_depth_usd,
+        ask_depth_usd,
+        obi_mean,
+        obi_std,
+        mlofi_strength,
+        mlofi_bn_mean,
+        mlofi_bb_mean,
+        tfi_agreement,
+        tfi_bn_mean,
+        tfi_bb_mean,
+        mp_div_mean,
+        mp_div_std,
+        rv,
+        intensity,
+        &config.validation,
+    )
+}
+
+fn vec_mean(v: &VecDeque<f64>) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    v.iter().sum::<f64>() / v.len() as f64
+}
+
+fn vec_std(v: &VecDeque<f64>, mean: f64) -> f64 {
+    if v.len() < 2 {
+        return 0.0;
+    }
+    (v.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (v.len() - 1) as f64).sqrt()
+}
+
+/// Push a value to a bounded VecDeque, evicting oldest if full.
+fn push_bounded(deque: &mut VecDeque<f64>, value: f64) {
+    if deque.len() >= MAX_SIGNAL_WINDOW {
+        deque.pop_front();
+    }
+    deque.push_back(value);
 }

@@ -4,7 +4,19 @@
       "WebFetch(domain:developers.binance.com)",
       "WebFetch(domain:github.com)",
       "WebFetch(domain:dzone.com)",
-      "WebFetch(domain:rjjavangula.medium.com)"
+      "WebFetch(domain:rjjavangula.medium.com)",
+      "Bash(cargo build:*)",
+      "Bash(rustup show:*)",
+      "Bash(cargo:*)",
+      "Bash(where:*)",
+      "Bash(rustup default:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd /c:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(rustup component list:*)",
+      "Bash(rustc --print sysroot:*)",
+      "Bash(PATH=\"C:\\\\Users\\\\aphis\\\\.rustup\\\\toolchains\\\\stable-x86_64-pc-windows-gnu\\\\lib\\\\rustlib\\\\x86_64-pc-windows-gnu\\\\bin\\\\self-contained:$PATH\" cargo check:*)",
+      "Bash(PATH=\"C:\\\\Users\\\\aphis\\\\.rustup\\\\toolchains\\\\stable-x86_64-pc-windows-gnu\\\\lib\\\\rustlib\\\\x86_64-pc-windows-gnu\\\\bin\\\\self-contained:$PATH\" cargo build:*)"
     ]
   }
 }

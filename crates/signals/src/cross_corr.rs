@@ -1,21 +1,27 @@
 use std::collections::VecDeque;
 
 /// Cross-Correlation Calculator
-/// วัด lead-lag ระหว่าง 2 exchanges
+/// Measures lead-lag between 2 exchanges with bidirectional detection.
+/// Uses binary search for O(n log n) performance instead of O(n^2).
 pub struct CrossCorrCalculator {
-    /// mid price snapshots จาก exchange A (leader, e.g. Binance)
-    leader_prices: VecDeque<(u64, f64)>,  // (timestamp_us, mid_price)
-    /// mid price snapshots จาก exchange B (follower, e.g. Bybit)
+    /// Price snapshots from exchange A (e.g. Binance)
+    leader_prices: VecDeque<(u64, f64)>,  // (timestamp_us, price)
+    /// Price snapshots from exchange B (e.g. Bybit)
     follower_prices: VecDeque<(u64, f64)>,
-    /// max window size
+    /// Max window size
     max_window: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct LeadLagResult {
+    /// Optimal lag in milliseconds (positive = A leads B, negative = B leads A)
     pub optimal_lag_ms: f64,
+    /// Peak correlation at optimal lag
     pub peak_correlation: f64,
-    pub all_correlations: Vec<(f64, f64)>,  // (lag_ms, correlation)
+    /// All tested correlations: (lag_ms, correlation)
+    pub all_correlations: Vec<(f64, f64)>,
+    /// Which direction is dominant: "A_LEADS" or "B_LEADS"
+    pub direction: String,
 }
 
 impl CrossCorrCalculator {
@@ -41,122 +47,138 @@ impl CrossCorrCalculator {
         }
     }
 
-    /// คำนวณ cross-correlation ที่ lag ต่างๆ
-    /// lag_range: ลองตั้งแต่ min_lag_ms ถึง max_lag_ms, step step_ms
+    /// Compute cross-correlation at multiple lags, BIDIRECTIONALLY.
+    /// Tests both A->B (positive lags) and B->A (negative lags).
     pub fn calculate(
         &self,
         min_lag_ms: f64,
         max_lag_ms: f64,
         step_ms: f64,
     ) -> Option<LeadLagResult> {
-        // ลดเกณฑ์จาก 100 เหลือ 50 เพื่อรองรับเหรียญที่ LOB update ไม่บ่อย
         if self.leader_prices.len() < 50 || self.follower_prices.len() < 50 {
-            return None; // ข้อมูลไม่พอ
+            return None;
         }
 
-        // คำนวณ log returns ของ leader
-        let leader_returns: Vec<(u64, f64)> = self.leader_prices
-            .iter()
-            .zip(self.leader_prices.iter().skip(1))
-            .map(|((_, p1), (t2, p2))| (*t2, (p2 / p1).ln()))
-            .collect();
+        let leader_returns = Self::compute_returns(&self.leader_prices);
+        let follower_returns = Self::compute_returns(&self.follower_prices);
 
-        // คำนวณ log returns ของ follower
-        let follower_returns: Vec<(u64, f64)> = self.follower_prices
-            .iter()
-            .zip(self.follower_prices.iter().skip(1))
-            .map(|((_, p1), (t2, p2))| (*t2, (p2 / p1).ln()))
-            .collect();
-
-        if leader_returns.is_empty() || follower_returns.is_empty() {
+        if leader_returns.len() < 20 || follower_returns.len() < 20 {
             return None;
         }
 
         let mut all_correlations = Vec::new();
         let mut best_lag = 0.0_f64;
-        let mut best_corr = -1.0_f64;
+        let mut best_corr = -2.0_f64;
 
-        // ทดสอบทุก lag
+        // ===== Forward direction: A leads B (positive lags) =====
         let mut lag_ms = min_lag_ms;
         while lag_ms <= max_lag_ms {
             let lag_us = (lag_ms * 1000.0) as i64;
-
-            // สำหรับแต่ละ follower return, หา leader return ที่ lag_us ก่อนหน้า
-            let corr = self.compute_correlation_at_lag(
+            if let Some(c) = Self::compute_correlation_at_lag(
                 &leader_returns,
                 &follower_returns,
                 lag_us,
-            );
-
-            if let Some(c) = corr {
+            ) {
                 all_correlations.push((lag_ms, c));
                 if c > best_corr {
                     best_corr = c;
                     best_lag = lag_ms;
                 }
             }
-
             lag_ms += step_ms;
         }
 
-        if all_correlations.is_empty() {
+        // ===== Reverse direction: B leads A (negative lags) =====
+        lag_ms = min_lag_ms;
+        while lag_ms <= max_lag_ms {
+            let lag_us = (lag_ms * 1000.0) as i64;
+            if let Some(c) = Self::compute_correlation_at_lag(
+                &follower_returns,
+                &leader_returns,
+                lag_us,
+            ) {
+                all_correlations.push((-lag_ms, c));
+                if c > best_corr {
+                    best_corr = c;
+                    best_lag = -lag_ms;
+                }
+            }
+            lag_ms += step_ms;
+        }
+
+        if all_correlations.is_empty() || best_corr < -1.0 {
             return None;
         }
+
+        let direction = if best_lag >= 0.0 {
+            "A_LEADS".to_string()
+        } else {
+            "B_LEADS".to_string()
+        };
 
         Some(LeadLagResult {
             optimal_lag_ms: best_lag,
             peak_correlation: best_corr,
             all_correlations,
+            direction,
         })
     }
 
+    fn compute_returns(prices: &VecDeque<(u64, f64)>) -> Vec<(u64, f64)> {
+        prices
+            .iter()
+            .zip(prices.iter().skip(1))
+            .filter_map(|((_, p1), (t2, p2))| {
+                if *p1 > 0.0 && *p2 > 0.0 {
+                    Some((*t2, (*p2 / *p1).ln()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     fn compute_correlation_at_lag(
-        &self,
-        leader_returns: &[(u64, f64)],
-        follower_returns: &[(u64, f64)],
+        source_returns: &[(u64, f64)],
+        target_returns: &[(u64, f64)],
         lag_us: i64,
     ) -> Option<f64> {
-        // จับคู่: leader return ที่เวลา (t - lag) กับ follower return ที่เวลา t
-        // ใช้ nearest timestamp matching
+        let mut paired_source = Vec::new();
+        let mut paired_target = Vec::new();
 
-        let mut paired_leader = Vec::new();
-        let mut paired_follower = Vec::new();
+        let tolerance_us: u64 = 150_000; // 150ms tolerance
 
-        let tolerance_us = 200_000; // เพิ่มเป็น 200ms เพื่อชดเชย network jitter
+        for (t_ts, t_ret) in target_returns {
+            let target_ts = (*t_ts as i64 - lag_us) as u64;
 
-        for (f_ts, f_ret) in follower_returns {
-            let target_ts = (*f_ts as i64 - lag_us) as u64;
-
-            // Binary search for nearest leader timestamp
-            if let Some(l_ret) = self.find_nearest_return(leader_returns, target_ts, tolerance_us) {
-                paired_leader.push(l_ret);
-                paired_follower.push(*f_ret);
+            if let Some(s_ret) = Self::binary_find_nearest(source_returns, target_ts, tolerance_us) {
+                paired_source.push(s_ret);
+                paired_target.push(*t_ret);
             }
         }
 
-        // ลดเกณฑ์จาก 50 เหลือ 20
-        if paired_leader.len() < 20 {
-            return None; // ข้อมูลจับคู่ไม่พอ
+        if paired_source.len() < 20 {
+            return None;
         }
 
         // Pearson correlation
-        let n = paired_leader.len() as f64;
-        let mean_l: f64 = paired_leader.iter().sum::<f64>() / n;
-        let mean_f: f64 = paired_follower.iter().sum::<f64>() / n;
+        let n = paired_source.len() as f64;
+        let mean_s: f64 = paired_source.iter().sum::<f64>() / n;
+        let mean_t: f64 = paired_target.iter().sum::<f64>() / n;
 
         let mut cov = 0.0;
-        let mut var_l = 0.0;
-        let mut var_f = 0.0;
+        let mut var_s = 0.0;
+        let mut var_t = 0.0;
 
-        for i in 0..paired_leader.len() {
-            let dl = paired_leader[i] - mean_l;
-            let df = paired_follower[i] - mean_f;
-            cov += dl * df;
-            var_l += dl * dl;
-            var_f += df * df;
+        for i in 0..paired_source.len() {
+            let ds = paired_source[i] - mean_s;
+            let dt = paired_target[i] - mean_t;
+            cov += ds * dt;
+            var_s += ds * ds;
+            var_t += dt * dt;
         }
 
-        let denom = (var_l * var_f).sqrt();
+        let denom = (var_s * var_t).sqrt();
         if denom < 1e-15 {
             return None;
         }
@@ -164,27 +186,46 @@ impl CrossCorrCalculator {
         Some(cov / denom)
     }
 
-    fn find_nearest_return(
-        &self,
+    /// Binary search for nearest timestamp in a sorted array.
+    fn binary_find_nearest(
         returns: &[(u64, f64)],
         target_ts: u64,
         tolerance_us: u64,
     ) -> Option<f64> {
-        // Simple linear search (สำหรับ Phase 0 พอแล้ว)
-        // Phase 1+ เปลี่ยนเป็น binary search
+        if returns.is_empty() {
+            return None;
+        }
+
+        // Binary search for insertion point
+        let mut lo = 0usize;
+        let mut hi = returns.len();
+
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if returns[mid].0 < target_ts {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+
+        // Check neighbors: lo-1 and lo
         let mut best_diff = u64::MAX;
         let mut best_ret = None;
 
-        for (ts, ret) in returns {
-            let diff = if *ts > target_ts {
-                *ts - target_ts
-            } else {
-                target_ts - *ts
-            };
-
+        if lo > 0 {
+            let diff = target_ts.saturating_sub(returns[lo - 1].0);
             if diff < best_diff {
                 best_diff = diff;
-                best_ret = Some(*ret);
+                best_ret = Some(returns[lo - 1].1);
+            }
+        }
+
+        if lo < returns.len() {
+            let diff = returns[lo].0.saturating_sub(target_ts);
+            if diff < best_diff {
+                best_diff = diff;
+                best_ret = Some(returns[lo].1);
             }
         }
 
