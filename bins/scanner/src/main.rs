@@ -109,17 +109,79 @@ async fn main() -> Result<()> {
 
     // ===== Status printer =====
     let state_clone = state.clone();
+    let config_clone = config.clone();
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(300)).await; // ทุก 5 นาที
             let s = state_clone.lock().unwrap();
-            info!("--- STATUS ---");
+            info!("--- STATUS (Interim Scores) ---");
             for (symbol, coin) in s.iter() {
+                // คำนวณ lead-lag statistics เบื้องต้น
+                let (avg_lag, avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
+                    let lags: Vec<f64> = coin.lead_lag_results.iter().map(|(l, _)| *l).collect();
+                    let corrs: Vec<f64> = coin.lead_lag_results.iter().map(|(_, c)| *c).collect();
+
+                    let avg_lag = lags.iter().sum::<f64>() / lags.len() as f64;
+                    let avg_corr = corrs.iter().sum::<f64>() / corrs.len() as f64;
+
+                    let lag_std = if lags.len() > 1 {
+                        let mean = avg_lag;
+                        (lags.iter().map(|l| (l - mean).powi(2)).sum::<f64>() / (lags.len() - 1) as f64).sqrt()
+                    } else {
+                        0.0
+                    };
+                    let lag_cv = if avg_lag > 0.0 { lag_std / avg_lag } else { 1.0 };
+
+                    (avg_lag, avg_corr, lag_cv)
+                } else {
+                    (0.0, 0.0, 1.0)
+                };
+
+                // OBI statistics เบื้องต้น
+                let obi_mean = if !coin.obi_values.is_empty() {
+                    coin.obi_values.iter().sum::<f64>() / coin.obi_values.len() as f64
+                } else {
+                    0.0
+                };
+                let obi_std = if coin.obi_values.len() > 1 {
+                    let mean = obi_mean;
+                    (coin.obi_values.iter().map(|v| (v - mean).powi(2)).sum::<f64>()
+                        / (coin.obi_values.len() - 1) as f64)
+                        .sqrt()
+                } else {
+                    0.0
+                };
+
+                // Depth in USD (approximate) เบื้องต้น
+                let mid = coin.bybit_book.mid_price().unwrap_or(1.0);
+                let bid_depth_usd = coin.bybit_book.bid_depth(5) * mid;
+                let ask_depth_usd = coin.bybit_book.ask_depth(5) * mid;
+
+                // ไม่ต้อง clone เพราะ cross_corr.calculate() ใช้ &self ไม่ได้ขโมย ownership
+                let current_result = coin.cross_corr.calculate(50.0, 500.0, 10.0);
+
+                let metrics = cos::calculate_cos(
+                    symbol,
+                    &current_result,
+                    lag_cv,
+                    coin.spread_tracker.mean(),
+                    0.0, // volume estimate
+                    bid_depth_usd,
+                    ask_depth_usd,
+                    obi_mean,
+                    obi_std,
+                    &config_clone.validation,
+                );
+
                 let spread = coin.spread_tracker.mean();
                 let ll_count = coin.lead_lag_results.len();
+
                 info!(
-                    "  {}: spread={:.1}bps, lead-lag samples={}",
-                    symbol, spread, ll_count
+                    "{}: SCORE={:.1}/100 | spread={:.1}bps, lead-lag samples={}",
+                    symbol,
+                    metrics.cos_score,
+                    spread,
+                    ll_count
                 );
             }
         }
