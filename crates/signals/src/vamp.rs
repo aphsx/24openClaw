@@ -1,4 +1,4 @@
-use zeroclaw_common::types::OrderBook;
+use tradingclaw_common::types::OrderBook;
 
 /// Volume Adjusted Mid Price
 pub fn calculate_vamp(book: &OrderBook, levels: usize) -> Option<f64> {

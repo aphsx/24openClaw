@@ -1,4 +1,4 @@
-use zeroclaw_common::types::OrderBook;
+use tradingclaw_common::types::OrderBook;
 
 /// MLOFI Calculator
 /// คำนวณ Multi-Level Order Flow Imbalance จาก LOB snapshots ต่อเนื่อง

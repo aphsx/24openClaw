@@ -1,12 +1,12 @@
 [package]
-name = "zeroclaw-scanner"
+name = "tradingclaw-scanner"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../common" }
-zeroclaw-network = { path = "../network" }
-zeroclaw-signals = { path = "../signals" }
+tradingclaw-common = { path = "../common" }
+tradingclaw-network = { path = "../network" }
+tradingclaw-signals = { path = "../signals" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

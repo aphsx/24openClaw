@@ -1,13 +1,13 @@
 [package]
-name = "zeroclaw-scanner-bin"
+name = "tradingclaw-scanner-bin"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../../crates/common" }
-zeroclaw-network = { path = "../../crates/network" }
-zeroclaw-signals = { path = "../../crates/signals" }
-zeroclaw-scanner = { path = "../../crates/scanner" }
+tradingclaw-common = { path = "../../crates/common" }
+tradingclaw-network = { path = "../../crates/network" }
+tradingclaw-signals = { path = "../../crates/signals" }
+tradingclaw-scanner = { path = "../../crates/scanner" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

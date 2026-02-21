@@ -1,6 +1,6 @@
 # 🤖 ClawBot AI — Crypto Scalping Bot
 
-> OpenClaw AI-powered scalping bot for Binance Futures
+> tradingclaw AI-powered scalping bot for Binance Futures
 > Profit in **both bull and bear** markets | 20x leverage | 5-minute cycles
 
 ## ⚡ Quick Start
@@ -8,7 +8,7 @@
 ```bash
 # 1. Clone & install
 git clone <repo-url>
-cd 24openClaw
+cd 24tradingclaw
 pip install -r requirements.txt
 
 # 2. Configure
@@ -22,7 +22,7 @@ cp .env.example .env
 python main.py --dry-run
 
 # 5. Live (cron every 5 min)
-# */5 * * * * cd /path/24openClaw && python main.py
+# */5 * * * * cd /path/24tradingclaw && python main.py
 ```
 
 ## 🏗️ Architecture

@@ -1,11 +1,11 @@
-# ZEROCLAW PHASE 0: SCANNER + VALIDATION — คู่มือลงมือทำแบบละเอียดที่สุด
+# tradingclaw PHASE 0: SCANNER + VALIDATION — คู่มือลงมือทำแบบละเอียดที่สุด
 
 ---
 
 ## 0. OVERVIEW: Phase 0 คืออะไร ทำไมต้องทำก่อน
 
 ```
-เป้าหมาย: สร้าง zeroclaw-scanner ใน Rust
+เป้าหมาย: สร้าง tradingclaw-scanner ใน Rust
   → ต่อ Binance + Bybit WebSocket
   → เก็บ LOB + Trade data แบบ real-time
   → วัด lead-lag ของทุกเหรียญ
@@ -56,11 +56,11 @@ sudo apt install build-essential pkg-config libssl-dev   # Linux
 ### 1.3 สร้าง Workspace
 
 ```bash
-mkdir zeroclaw
-cd zeroclaw
+mkdir tradingclaw
+cd tradingclaw
 
 # สร้าง workspace root
-cargo init --name zeroclaw-workspace
+cargo init --name tradingclaw-workspace
 rm -rf src   # ไม่ต้องการ src ที่ root
 ```
 
@@ -69,7 +69,7 @@ rm -rf src   # ไม่ต้องการ src ที่ root
 ## 2. PROJECT STRUCTURE ทั้งหมด
 
 ```
-zeroclaw/
+tradingclaw/
 ├── Cargo.toml                    ← workspace root
 │
 ├── crates/
@@ -107,7 +107,7 @@ zeroclaw/
 │           └── report.rs         ← output report generator
 │
 ├── bins/
-│   └── scanner/                  ← zeroclaw-scanner binary
+│   └── scanner/                  ← tradingclaw-scanner binary
 │       ├── Cargo.toml
 │       └── src/
 │           └── main.rs           ← entry point
@@ -126,7 +126,7 @@ zeroclaw/
 ### 3.1 Root Workspace Cargo.toml
 
 ```toml
-# zeroclaw/Cargo.toml
+# tradingclaw/Cargo.toml
 
 [workspace]
 resolver = "2"
@@ -175,7 +175,7 @@ url = "2.5"
 
 ```toml
 [package]
-name = "zeroclaw-common"
+name = "tradingclaw-common"
 version = "0.1.0"
 edition = "2021"
 
@@ -193,12 +193,12 @@ toml = { workspace = true }
 
 ```toml
 [package]
-name = "zeroclaw-network"
+name = "tradingclaw-network"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../common" }
+tradingclaw-common = { path = "../common" }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
@@ -213,12 +213,12 @@ url = { workspace = true }
 
 ```toml
 [package]
-name = "zeroclaw-signals"
+name = "tradingclaw-signals"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../common" }
+tradingclaw-common = { path = "../common" }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 ordered-float = { workspace = true }
@@ -228,14 +228,14 @@ ordered-float = { workspace = true }
 
 ```toml
 [package]
-name = "zeroclaw-scanner"
+name = "tradingclaw-scanner"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../common" }
-zeroclaw-network = { path = "../network" }
-zeroclaw-signals = { path = "../signals" }
+tradingclaw-common = { path = "../common" }
+tradingclaw-network = { path = "../network" }
+tradingclaw-signals = { path = "../signals" }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -248,15 +248,15 @@ chrono = { workspace = true }
 
 ```toml
 [package]
-name = "zeroclaw-scanner-bin"
+name = "tradingclaw-scanner-bin"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../../crates/common" }
-zeroclaw-network = { path = "../../crates/network" }
-zeroclaw-signals = { path = "../../crates/signals" }
-zeroclaw-scanner = { path = "../../crates/scanner" }
+tradingclaw-common = { path = "../../crates/common" }
+tradingclaw-network = { path = "../../crates/network" }
+tradingclaw-signals = { path = "../../crates/signals" }
+tradingclaw-scanner = { path = "../../crates/scanner" }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -623,7 +623,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tracing::{error, info, warn};
-use zeroclaw_common::types::{Exchange, OrderBook, PriceLevel, TradeEvent};
+use tradingclaw_common::types::{Exchange, OrderBook, PriceLevel, TradeEvent};
 
 // ============================================================
 // Binance WebSocket JSON structures
@@ -820,7 +820,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite;
 use tracing::{error, info, warn};
-use zeroclaw_common::types::{Exchange, PriceLevel, TradeEvent};
+use tradingclaw_common::types::{Exchange, PriceLevel, TradeEvent};
 
 // ============================================================
 // Bybit WebSocket JSON structures
@@ -1056,7 +1056,7 @@ pub mod spread;
 ### 4.8 crates/signals/src/mlofi.rs
 
 ```rust
-use zeroclaw_common::types::OrderBook;
+use tradingclaw_common::types::OrderBook;
 
 /// MLOFI Calculator
 /// คำนวณ Multi-Level Order Flow Imbalance จาก LOB snapshots ต่อเนื่อง
@@ -1170,7 +1170,7 @@ impl MlofiCalculator {
 ### 4.9 crates/signals/src/obi.rs
 
 ```rust
-use zeroclaw_common::types::OrderBook;
+use tradingclaw_common::types::OrderBook;
 
 /// Order Book Imbalance (OBI)
 /// ง่ายและเร็ว — วัดอัตราส่วนปริมาณ bid vs ask
@@ -1192,7 +1192,7 @@ pub fn calculate_obi(book: &OrderBook, levels: usize) -> f64 {
 
 ```rust
 use std::collections::VecDeque;
-use zeroclaw_common::types::TradeEvent;
+use tradingclaw_common::types::TradeEvent;
 
 /// Trade Flow Imbalance (TFI)
 /// วัดแรงกดจาก actual trades
@@ -1441,7 +1441,7 @@ impl CrossCorrCalculator {
 ### 4.12 crates/signals/src/vamp.rs
 
 ```rust
-use zeroclaw_common::types::OrderBook;
+use tradingclaw_common::types::OrderBook;
 
 /// Volume Adjusted Mid Price
 pub fn calculate_vamp(book: &OrderBook, levels: usize) -> Option<f64> {
@@ -1525,9 +1525,9 @@ pub fn get_universe(config_symbols: &[String]) -> Vec<String> {
 ### 4.16 crates/scanner/src/cos.rs
 
 ```rust
-use zeroclaw_common::config::ValidationConfig;
-use zeroclaw_common::types::CoinMetrics;
-use zeroclaw_signals::cross_corr::LeadLagResult;
+use tradingclaw_common::config::ValidationConfig;
+use tradingclaw_common::types::CoinMetrics;
+use tradingclaw_signals::cross_corr::LeadLagResult;
 
 /// คำนวณ Composite Opportunity Score
 pub fn calculate_cos(
@@ -1668,14 +1668,14 @@ pub fn calculate_cos(
 ### 4.17 crates/scanner/src/report.rs
 
 ```rust
-use zeroclaw_common::types::{CoinMetrics, ScannerReport};
+use tradingclaw_common::types::{CoinMetrics, ScannerReport};
 
 /// สร้าง readable text report
 pub fn generate_text_report(report: &ScannerReport) -> String {
     let mut out = String::new();
 
     out.push_str("==========================================================\n");
-    out.push_str("           ZEROCLAW SCANNER VALIDATION REPORT\n");
+    out.push_str("           tradingclaw SCANNER VALIDATION REPORT\n");
     out.push_str("==========================================================\n\n");
     out.push_str(&format!("Period: {} to {}\n", report.start_time, report.end_time));
     out.push_str(&format!("Duration: {:.1} hours\n", report.duration_hours));
@@ -1730,11 +1730,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
-use zeroclaw_common::config::ScannerConfig;
-use zeroclaw_common::types::*;
-use zeroclaw_network::{binance, bybit};
-use zeroclaw_signals::{cross_corr::CrossCorrCalculator, mlofi::MlofiCalculator, obi, spread::SpreadTracker, tfi::TfiCalculator};
-use zeroclaw_scanner::{cos, report};
+use tradingclaw_common::config::ScannerConfig;
+use tradingclaw_common::types::*;
+use tradingclaw_network::{binance, bybit};
+use tradingclaw_signals::{cross_corr::CrossCorrCalculator, mlofi::MlofiCalculator, obi, spread::SpreadTracker, tfi::TfiCalculator};
+use tradingclaw_scanner::{cos, report};
 
 /// State ของแต่ละเหรียญ
 struct CoinState {
@@ -1757,7 +1757,7 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    info!("=== ZEROCLAW SCANNER v0.1 ===");
+    info!("=== tradingclaw SCANNER v0.1 ===");
 
     // ===== Load config =====
     let config = ScannerConfig::default();  // TODO: load from scanner.toml
@@ -2118,7 +2118,7 @@ universe = [
 ### 6.1 Build
 
 ```bash
-cd zeroclaw
+cd tradingclaw
 
 # Build ทั้ง workspace
 cargo build
@@ -2137,15 +2137,15 @@ cargo build --release
 
 ```bash
 # Development mode (debug, slower but better error messages)
-cargo run --bin zeroclaw-scanner-bin
+cargo run --bin tradingclaw-scanner-bin
 
 # Production mode (optimized)
-cargo run --release --bin zeroclaw-scanner-bin
+cargo run --release --bin tradingclaw-scanner-bin
 
 # ด้วย logging level ต่างๆ
-RUST_LOG=debug cargo run --bin zeroclaw-scanner-bin   # ดู debug messages
-RUST_LOG=info cargo run --bin zeroclaw-scanner-bin    # ดูแค่ info+
-RUST_LOG=warn cargo run --bin zeroclaw-scanner-bin    # ดูแค่ warnings+
+RUST_LOG=debug cargo run --bin tradingclaw-scanner-bin   # ดู debug messages
+RUST_LOG=info cargo run --bin tradingclaw-scanner-bin    # ดูแค่ info+
+RUST_LOG=warn cargo run --bin tradingclaw-scanner-bin    # ดูแค่ warnings+
 ```
 
 ### 6.3 ทดสอบสั้นๆ ก่อน (scan 1 ชั่วโมง)
@@ -2154,7 +2154,7 @@ RUST_LOG=warn cargo run --bin zeroclaw-scanner-bin    # ดูแค่ warnings
 # แก้ config ให้ scan แค่ 1 ชม. ก่อน ดูว่า connect ได้ไหม data ไหลไหม
 # แก้ใน config/scanner.toml: scan_duration_hours = 1.0
 
-cargo run --bin zeroclaw-scanner-bin
+cargo run --bin tradingclaw-scanner-bin
 ```
 
 ---
@@ -2164,7 +2164,7 @@ cargo run --bin zeroclaw-scanner-bin
 ### 7.1 ระหว่าง Scan (console log)
 
 ```
-INFO === ZEROCLAW SCANNER v0.1 ===
+INFO === tradingclaw SCANNER v0.1 ===
 INFO Scanning 20 coins: ["ETHUSDT", "SOLUSDT", ...]
 INFO Connecting to Binance: 40 streams
 INFO Connecting to Bybit: 20 symbols
@@ -2187,7 +2187,7 @@ INFO   SOLUSDT: spread=3.1bps, lead-lag samples=12
 
 ```
 ==========================================================
-           ZEROCLAW SCANNER VALIDATION REPORT
+           tradingclaw SCANNER VALIDATION REPORT
 ==========================================================
 
 Period: 2026-02-19T12:00:00Z to 2026-02-20T12:00:00Z

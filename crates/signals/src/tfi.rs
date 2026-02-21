@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use zeroclaw_common::types::TradeEvent;
+use tradingclaw_common::types::TradeEvent;
 
 /// Trade Flow Imbalance (TFI)
 /// วัดแรงกดจาก actual trades

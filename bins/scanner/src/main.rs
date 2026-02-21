@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
-use zeroclaw_common::config::ScannerConfig;
-use zeroclaw_common::types::*;
-use zeroclaw_network::{binance, bybit};
-use zeroclaw_signals::{cross_corr::CrossCorrCalculator, mlofi::MlofiCalculator, obi, spread::SpreadTracker, tfi::TfiCalculator};
-use zeroclaw_scanner::{cos, report};
+use tradingclaw_common::config::ScannerConfig;
+use tradingclaw_common::types::*;
+use tradingclaw_network::{binance, bybit};
+use tradingclaw_signals::{cross_corr::CrossCorrCalculator, mlofi::MlofiCalculator, obi, spread::SpreadTracker, tfi::TfiCalculator};
+use tradingclaw_scanner::{cos, report};
 
 /// State ของแต่ละเหรียญ
 struct CoinState {
@@ -30,7 +30,7 @@ async fn main() -> Result<()> {
         .with_target(false)
         .init();
 
-    info!("=== ZEROCLAW SCANNER v0.1 ===");
+    info!("=== TRADINGCLAW SCANNER v0.1 ===");
 
     // ===== Load config =====
     let config = ScannerConfig::default();  // TODO: load from scanner.toml

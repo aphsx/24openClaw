@@ -1,6 +1,6 @@
-use zeroclaw_common::config::ValidationConfig;
-use zeroclaw_common::types::CoinMetrics;
-use zeroclaw_signals::cross_corr::LeadLagResult;
+use tradingclaw_common::config::ValidationConfig;
+use tradingclaw_common::types::CoinMetrics;
+use tradingclaw_signals::cross_corr::LeadLagResult;
 
 /// คำนวณ Composite Opportunity Score
 pub fn calculate_cos(

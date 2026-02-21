@@ -1,10 +1,10 @@
 [package]
-name = "zeroclaw-network"
+name = "tradingclaw-network"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-zeroclaw-common = { path = "../common" }
+tradingclaw-common = { path = "../common" }
 tokio = { workspace = true }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }

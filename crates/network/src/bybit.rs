@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite;
 use tracing::{error, info, warn};
-use zeroclaw_common::types::{Exchange, PriceLevel, TradeEvent};
+use tradingclaw_common::types::{Exchange, PriceLevel, TradeEvent};
 
 // ============================================================
 // Bybit WebSocket JSON structures

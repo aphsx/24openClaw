@@ -1,4 +1,4 @@
-# ZEROCLAW MFT SYSTEM — FINAL ENGINEERING BLUEPRINT v3.0
+# tradingclaw MFT SYSTEM — FINAL ENGINEERING BLUEPRINT v3.0
 
 ---
 
@@ -21,7 +21,7 @@
 ## SECTION 0: DOCUMENT INFORMATION (อัพเดท)
 
 ```
-Project Name: ZeroClaw Phase 1
+Project Name: tradingclaw Phase 1
 Strategy Name: Cross-Exchange Informed Flow Arbitrage (CEIFA)
 Language: Rust (ทั้ง Validation และ Production)
 Target Exchanges: Binance Futures (Signal Source), Bybit Linear (Execution), OKX Futures (Secondary Signal)
@@ -237,7 +237,7 @@ Storage Budget:
 
 ```
 Phase 0A (สัปดาห์ที่ 1): Validation Tool
-  → Rust binary ตัวแรก ชื่อ "zeroclaw-scanner"
+  → Rust binary ตัวแรก ชื่อ "tradingclaw-scanner"
   → ต่อ WebSocket เก็บ data จาก Binance + Bybit
   → วัด lead-lag, spread, fill probability ของทุกเหรียญใน universe
   → รันทิ้งไว้ 24-48 ชั่วโมง
@@ -254,12 +254,12 @@ Phase 1+ (Runtime): Asset Scanner ทำงานต่อเนื่อง
   → เมื่อพบเหรียญใหม่ที่ดีกว่า → trigger rotation
 ```
 
-**ดังนั้น zeroclaw-scanner เป็นทั้ง validation tool และ production component — เขียนครั้งเดียว ใช้ได้ตลอด**
+**ดังนั้น tradingclaw-scanner เป็นทั้ง validation tool และ production component — เขียนครั้งเดียว ใช้ได้ตลอด**
 
-### 3.2 zeroclaw-scanner Architecture
+### 3.2 tradingclaw-scanner Architecture
 
 ```
-Binary: zeroclaw-scanner
+Binary: tradingclaw-scanner
 
 Mode 1: --mode validate (Phase 0)
   - ต่อทุกเหรียญใน universe พร้อมกัน (15-25 เหรียญ)
@@ -314,7 +314,7 @@ Criterion 5 — Minimum Order Compatibility:
 ### 3.4 Validation Output Format
 
 ```
-=== ZEROCLAW SCANNER REPORT ===
+=== tradingclaw SCANNER REPORT ===
 Date: 2026-02-20 00:00 to 2026-02-21 00:00
 Duration: 24 hours
 Coins Scanned: 22
@@ -692,7 +692,7 @@ Recommended Setup:
 ```
 สิ่งที่ต้อง code:
 
-Binary: zeroclaw-scanner
+Binary: tradingclaw-scanner
 
 Crate Dependencies:
   tokio (async runtime)
@@ -727,7 +727,7 @@ Deliverable:
 ### Phase 1: Core Trading Engine (สัปดาห์ที่ 3-5)
 
 ```
-Binary: zeroclaw-trader
+Binary: tradingclaw-trader
 
 Crate เพิ่มเติม:
   ring (HMAC-SHA256 for exchange auth)
@@ -960,7 +960,7 @@ reconnect_max_attempts = 10
 ## SECTION 9: CARGO WORKSPACE STRUCTURE
 
 ```
-zeroclaw/
+tradingclaw/
 ├── Cargo.toml                (workspace root)
 ├── crates/
 │   ├── common/               (shared types, config)
@@ -1039,11 +1039,11 @@ zeroclaw/
 │           └── latency_confirm.rs
 │
 ├── bins/
-│   ├── scanner/              (zeroclaw-scanner binary)
+│   ├── scanner/              (tradingclaw-scanner binary)
 │   │   ├── Cargo.toml
 │   │   └── src/main.rs
 │   │
-│   └── trader/               (zeroclaw-trader binary)
+│   └── trader/               (tradingclaw-trader binary)
 │       ├── Cargo.toml
 │       └── src/main.rs
 │
@@ -1062,7 +1062,7 @@ zeroclaw/
 
 ```
 === Phase 0 Validation ===
-[ ] zeroclaw-scanner builds and runs
+[ ] tradingclaw-scanner builds and runs
 [ ] Connects to Binance + Bybit WebSocket successfully
 [ ] Receives and parses LOB + trade data
 [ ] Calculates MLOFI for all universe coins
@@ -1112,4 +1112,4 @@ Changes from v2.1: Ghost Orders revised, AI phased, 2 new signals (OBI/TFI),
   adaptive weights, adaptive stop loss, dual lead-lag update, 
   realistic profit model, Rust-first roadmap, validation phase added
 Ready for Implementation: Yes
-Next Step: Phase 0 — Build zeroclaw-scanner in Rust
+Next Step: Phase 0 — Build tradingclaw-scanner in Rust

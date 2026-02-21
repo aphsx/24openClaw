@@ -1,11 +1,11 @@
-use zeroclaw_common::types::{CoinMetrics, ScannerReport};
+use tradingclaw_common::types::{CoinMetrics, ScannerReport};
 
 /// สร้าง readable text report
 pub fn generate_text_report(report: &ScannerReport) -> String {
     let mut out = String::new();
 
-    out.push_str("==========================================================\n");
-    out.push_str("           ZEROCLAW SCANNER VALIDATION REPORT\n");
+    out.push_str("============================================================\n");
+    out.push_str("           TRADINGCLAW SCANNER VALIDATION REPORT\n");
     out.push_str("==========================================================\n\n");
     out.push_str(&format!("Period: {} to {}\n", report.start_time, report.end_time));
     out.push_str(&format!("Duration: {:.1} hours\n", report.duration_hours));

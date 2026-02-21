@@ -1,4 +1,4 @@
-use zeroclaw_common::types::OrderBook;
+use tradingclaw_common::types::OrderBook;
 
 /// Order Book Imbalance (OBI)
 /// ง่ายและเร็ว — วัดอัตราส่วนปริมาณ bid vs ask
