@@ -1,10 +1,10 @@
 use anyhow::Result;
-use futures_util::{SinkExt, StreamExt};
+use futures_util::StreamExt;
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite};
 use tracing::{error, info, warn};
-use tradingclaw_common::types::{Exchange, OrderBook, PriceLevel, TradeEvent};
+use tradingclaw_common::types::{Exchange, PriceLevel, TradeEvent};
 
 // ============================================================
 // Binance WebSocket JSON structures
@@ -13,7 +13,7 @@ use tradingclaw_common::types::{Exchange, OrderBook, PriceLevel, TradeEvent};
 #[derive(Debug, Deserialize)]
 struct BinanceDepthMsg {
     #[serde(rename = "lastUpdateId")]
-    last_update_id: u64,
+    _last_update_id: u64,
     bids: Vec<[String; 2]>,
     asks: Vec<[String; 2]>,
 }

@@ -25,7 +25,7 @@ struct BybitOrderbookData {
     s: String,          // symbol
     b: Vec<[String; 2]>, // bids [[price, qty], ...]
     a: Vec<[String; 2]>, // asks
-    u: u64,             // update id
+    _u: u64,             // update id
 }
 
 #[derive(Debug, Deserialize)]

@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing::{info, warn};
+use tracing::info;
 use tradingclaw_common::config::ScannerConfig;
 use tradingclaw_common::types::*;
 use tradingclaw_network::{binance, bybit};
@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
             info!("--- STATUS (Interim Scores) ---");
             for (symbol, coin) in s.iter() {
                 // คำนวณ lead-lag statistics เบื้องต้น
-                let (avg_lag, avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
+                let (_avg_lag, _avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
                     let lags: Vec<f64> = coin.lead_lag_results.iter().map(|(l, _)| *l).collect();
                     let corrs: Vec<f64> = coin.lead_lag_results.iter().map(|(_, c)| *c).collect();
 
@@ -292,7 +292,7 @@ async fn main() -> Result<()> {
 
     for (symbol, coin) in s.iter() {
         // คำนวณ lead-lag statistics
-        let (avg_lag, avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
+        let (_avg_lag, _avg_corr, lag_cv) = if !coin.lead_lag_results.is_empty() {
             let lags: Vec<f64> = coin.lead_lag_results.iter().map(|(l, _)| *l).collect();
             let corrs: Vec<f64> = coin.lead_lag_results.iter().map(|(_, c)| *c).collect();
 

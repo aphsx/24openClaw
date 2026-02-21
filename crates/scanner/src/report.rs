@@ -1,4 +1,4 @@
-use tradingclaw_common::types::{CoinMetrics, ScannerReport};
+use tradingclaw_common::types::ScannerReport;
 
 /// สร้าง readable text report
 pub fn generate_text_report(report: &ScannerReport) -> String {

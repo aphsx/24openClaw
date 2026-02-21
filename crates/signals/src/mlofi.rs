@@ -3,7 +3,7 @@ use tradingclaw_common::types::OrderBook;
 /// MLOFI Calculator
 /// คำนวณ Multi-Level Order Flow Imbalance จาก LOB snapshots ต่อเนื่อง
 pub struct MlofiCalculator {
-    lambda: f64,           // decay parameter (default 0.3)
+    _lambda: f64,           // decay parameter (default 0.3)
     levels: usize,         // จำนวน levels (default 10)
     weights: Vec<f64>,     // pre-computed weights per level
     prev_bids: Vec<(f64, f64)>,  // previous (price, qty) per level
@@ -24,7 +24,7 @@ impl MlofiCalculator {
         let weights: Vec<f64> = raw_weights.iter().map(|w| w / sum).collect();
 
         Self {
-            lambda,
+            _lambda: lambda,
             levels,
             weights,
             prev_bids: Vec::new(),
