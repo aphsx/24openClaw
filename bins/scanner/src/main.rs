@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
-use tracing::info;
+use tracing::{info, warn};
 use tradingclaw_common::config::ScannerConfig;
 use tradingclaw_common::types::*;
 use tradingclaw_network::{binance, bybit};
@@ -83,6 +83,7 @@ async fn main() -> Result<()> {
         config.validation.min_correlation,
         config.validation.min_lag_ms,
     );
+    info!("Tracked symbols (case-sensitive): {:?}", symbols);
 
     // ===== Initialize per-coin state =====
     let state: Arc<Mutex<HashMap<String, CoinState>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -163,6 +164,12 @@ async fn main() -> Result<()> {
         }
     });
 
+    // ===== Message counters for diagnostics =====
+    let binance_msg_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let bybit_msg_count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let binance_count_clone = binance_msg_count.clone();
+    let bybit_count_clone = bybit_msg_count.clone();
+
     // ===== Status printer =====
     let state_clone = state.clone();
     let config_clone = config.clone();
@@ -170,7 +177,10 @@ async fn main() -> Result<()> {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(300)).await;
             let s = state_clone.lock().unwrap();
+            let binance_msgs = binance_count_clone.load(std::sync::atomic::Ordering::Relaxed);
+            let bybit_msgs = bybit_count_clone.load(std::sync::atomic::Ordering::Relaxed);
             info!("--- STATUS (Interim Scores) ---");
+            info!("Messages received: Binance={}, Bybit={}", binance_msgs, bybit_msgs);
             for (symbol, coin) in s.iter() {
                 let metrics = compute_coin_metrics(symbol, coin, &config_clone);
                 info!(
@@ -200,6 +210,7 @@ async fn main() -> Result<()> {
         tokio::select! {
             // ===== Process Binance messages =====
             Some(msg) = binance_rx.recv() => {
+                binance_msg_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let mut s = state.lock().unwrap();
                 match msg {
                     binance::BinanceMessage::DepthUpdate { symbol, bids, asks, timestamp_us } => {
@@ -246,6 +257,7 @@ async fn main() -> Result<()> {
 
             // ===== Process Bybit messages =====
             Some(msg) = bybit_rx.recv() => {
+                bybit_msg_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let mut s = state.lock().unwrap();
                 match msg {
                     bybit::BybitMessage::DepthSnapshot { symbol, bids, asks, timestamp_us } => {
@@ -269,6 +281,9 @@ async fn main() -> Result<()> {
                             ) {
                                 push_bounded(&mut coin.microprice_divergences, div.abs());
                             }
+                        } else {
+                            warn!("Bybit DepthSnapshot: symbol '{}' not in tracked list (have: {:?})",
+                                  symbol, s.keys().collect::<Vec<_>>());
                         }
                     }
                     bybit::BybitMessage::DepthDelta { symbol, bids, asks, timestamp_us } => {
@@ -298,6 +313,8 @@ async fn main() -> Result<()> {
                             ) {
                                 push_bounded(&mut coin.microprice_divergences, div.abs());
                             }
+                        } else {
+                            warn!("Bybit DepthDelta: symbol '{}' not in tracked list", symbol);
                         }
                     }
                     bybit::BybitMessage::Trade(trade) => {
@@ -311,6 +328,8 @@ async fn main() -> Result<()> {
                                 trade.price,
                                 trade.quantity,
                             );
+                        } else {
+                            warn!("Bybit Trade: symbol '{}' not in tracked list", trade.symbol);
                         }
                     }
                 }

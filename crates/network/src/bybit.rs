@@ -154,7 +154,13 @@ fn process_bybit_message(
 
     let topic = match &msg.topic {
         Some(t) => t.as_str(),
-        None => return Ok(()), // subscription confirmation etc.
+        None => {
+            // Log subscription confirmations for debugging
+            if let Some(msg_type) = &msg.msg_type {
+                info!("Bybit message type: {}", msg_type);
+            }
+            return Ok(());
+        }
     };
 
     let data = match &msg.data {
@@ -192,6 +198,14 @@ fn process_bybit_message(
 
         let msg_type = msg.msg_type.as_deref().unwrap_or("");
 
+        // Debug: log snapshot messages to verify data flow
+        if msg_type == "snapshot" {
+            info!(
+                "Bybit snapshot for '{}': {} bids, {} asks",
+                ob_data.s, bids.len(), asks.len()
+            );
+        }
+
         if msg_type == "snapshot" {
             let _ = tx.send(BybitMessage::DepthSnapshot {
                 symbol: ob_data.s,
@@ -212,6 +226,7 @@ fn process_bybit_message(
         // data is an array of trades
         if let Ok(trades) = serde_json::from_value::<Vec<BybitTradeItem>>(data.clone()) {
             let now_us = chrono::Utc::now().timestamp_micros() as u64;
+
             for t in trades {
                 let _ = tx.send(BybitMessage::Trade(TradeEvent {
                     timestamp_us: now_us,

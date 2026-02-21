@@ -16,7 +16,8 @@
       "Bash(rustup component list:*)",
       "Bash(rustc --print sysroot:*)",
       "Bash(PATH=\"C:\\\\Users\\\\aphis\\\\.rustup\\\\toolchains\\\\stable-x86_64-pc-windows-gnu\\\\lib\\\\rustlib\\\\x86_64-pc-windows-gnu\\\\bin\\\\self-contained:$PATH\" cargo check:*)",
-      "Bash(PATH=\"C:\\\\Users\\\\aphis\\\\.rustup\\\\toolchains\\\\stable-x86_64-pc-windows-gnu\\\\lib\\\\rustlib\\\\x86_64-pc-windows-gnu\\\\bin\\\\self-contained:$PATH\" cargo build:*)"
+      "Bash(PATH=\"C:\\\\Users\\\\aphis\\\\.rustup\\\\toolchains\\\\stable-x86_64-pc-windows-gnu\\\\lib\\\\rustlib\\\\x86_64-pc-windows-gnu\\\\bin\\\\self-contained:$PATH\" cargo build:*)",
+      "WebFetch(domain:bybit-exchange.github.io)"
     ]
   }
 }
