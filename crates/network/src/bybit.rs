@@ -17,7 +17,7 @@ struct BybitWsMsg {
     #[serde(rename = "type")]
     msg_type: Option<String>,
     data: Option<serde_json::Value>,
-    ts: Option<u64>,  // milliseconds
+    _ts: Option<u64>,  // milliseconds
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,7 +31,7 @@ struct BybitOrderbookData {
 #[derive(Debug, Deserialize)]
 struct BybitTradeItem {
     #[serde(rename = "T")]
-    timestamp: u64,     // milliseconds
+    _timestamp: u64,     // milliseconds
     s: String,          // symbol
     #[serde(rename = "S")]
     side: String,       // "Buy" or "Sell"
@@ -162,7 +162,8 @@ fn process_bybit_message(
         None => return Ok(()),
     };
 
-    let ts_us = msg.ts.unwrap_or(0) * 1000; // ms → us
+    // ใช้ local time (เวลาเครื่องเรา) เพื่อให้ sync กับ Binance ได้แบบเป๊ะๆ ไม่มีปัญหาความเหลื่อมล้ำนาฬิกา
+    let ts_us = chrono::Utc::now().timestamp_micros() as u64;
 
     if topic.starts_with("orderbook.") {
         let ob_data: BybitOrderbookData = serde_json::from_value(data.clone())?;
@@ -210,9 +211,10 @@ fn process_bybit_message(
     } else if topic.starts_with("publicTrade.") {
         // data is an array of trades
         if let Ok(trades) = serde_json::from_value::<Vec<BybitTradeItem>>(data.clone()) {
+            let now_us = chrono::Utc::now().timestamp_micros() as u64;
             for t in trades {
                 let _ = tx.send(BybitMessage::Trade(TradeEvent {
-                    timestamp_us: t.timestamp * 1000,
+                    timestamp_us: now_us,
                     price: t.p.parse().unwrap_or(0.0),
                     quantity: t.v.parse().unwrap_or(0.0),
                     is_buyer_maker: t.side == "Sell", // Sell side = buyer is maker

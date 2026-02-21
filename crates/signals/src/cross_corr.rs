@@ -49,7 +49,8 @@ impl CrossCorrCalculator {
         max_lag_ms: f64,
         step_ms: f64,
     ) -> Option<LeadLagResult> {
-        if self.leader_prices.len() < 100 || self.follower_prices.len() < 100 {
+        // ลดเกณฑ์จาก 100 เหลือ 50 เพื่อรองรับเหรียญที่ LOB update ไม่บ่อย
+        if self.leader_prices.len() < 50 || self.follower_prices.len() < 50 {
             return None; // ข้อมูลไม่พอ
         }
 
@@ -121,7 +122,7 @@ impl CrossCorrCalculator {
         let mut paired_leader = Vec::new();
         let mut paired_follower = Vec::new();
 
-        let tolerance_us = 50_000; // 50ms tolerance สำหรับ matching
+        let tolerance_us = 200_000; // เพิ่มเป็น 200ms เพื่อชดเชย network jitter
 
         for (f_ts, f_ret) in follower_returns {
             let target_ts = (*f_ts as i64 - lag_us) as u64;
@@ -133,7 +134,8 @@ impl CrossCorrCalculator {
             }
         }
 
-        if paired_leader.len() < 50 {
+        // ลดเกณฑ์จาก 50 เหลือ 20
+        if paired_leader.len() < 20 {
             return None; // ข้อมูลจับคู่ไม่พอ
         }
 
