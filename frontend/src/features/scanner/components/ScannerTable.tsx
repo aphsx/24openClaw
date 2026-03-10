@@ -32,14 +32,22 @@ function MiniSpread({ zscore }: { zscore: number }) {
 // ═══════════════════════════════════════
 function ZoneBadge({ zone, sizePct }: { zone: string, sizePct?: number }) {
     const map: any = {
-        safe: { bg: "#052e16", border: "#166534", color: "#4ade80", label: `SAFE ${sizePct || 100}%` },
-        caution: { bg: "#431407", border: "#9a3412", color: "#fb923c", label: `CAUTION ${sizePct || 50}%` },
-        danger: { bg: "#450a0a", border: "#991b1b", color: "#f87171", label: "BLOCKED" },
-        none: { bg: "#1e293b", border: "#334155", color: "#64748b", label: "NO SIGNAL" },
+        safe: { bg: "rgba(22, 163, 74, 0.15)", border: "rgba(34, 197, 94, 0.3)", color: "#4ade80", label: `SAFE ${sizePct || 100}%`, drop: "rgba(16, 185, 129, 0.1)" },
+        caution: { bg: "rgba(194, 65, 12, 0.15)", border: "rgba(234, 88, 12, 0.3)", color: "#fb923c", label: `CAUTION ${sizePct || 50}%`, drop: "rgba(249, 115, 22, 0.1)" },
+        danger: { bg: "rgba(153, 27, 27, 0.15)", border: "rgba(220, 38, 38, 0.3)", color: "#f87171", label: "BLOCKED", drop: "rgba(239, 68, 68, 0.1)" },
+        none: { bg: "rgba(30, 41, 59, 0.15)", border: "rgba(71, 85, 105, 0.3)", color: "#94a3b8", label: "NO SIGNAL", drop: "rgba(0,0,0,0)" },
     };
     const s = map[zone] || map.none;
     return (
-        <span style={{ background: s.bg, border: `1px solid ${s.border}`, color: s.color }} className="px-2 py-0.5 rounded text-[9px] font-bold tracking-wider whitespace-nowrap">
+        <span
+            style={{
+                background: s.bg,
+                border: `1px solid ${s.border}`,
+                color: s.color,
+                boxShadow: `0 0 10px ${s.drop}`
+            }}
+            className="px-2 py-0.5 rounded text-[8px] font-black tracking-[0.1em] whitespace-nowrap backdrop-blur-sm"
+        >
             {s.label}
         </span>
     );
@@ -51,7 +59,14 @@ function ZoneBadge({ zone, sizePct }: { zone: string, sizePct?: number }) {
 function Side({ side }: { side: string }) {
     const isLong = side === "LONG" || side === "buy";
     return (
-        <span style={{ color: isLong ? "#4ade80" : "#f87171", background: isLong ? "#052e1620" : "#450a0a20", border: `1px solid ${isLong ? "#16653440" : "#991b1b40"}` }} className="font-extrabold text-[9px] px-1.5 py-0.5 rounded">
+        <span
+            style={{
+                color: isLong ? "#4ade80" : "#f87171",
+                background: isLong ? "rgba(22, 163, 74, 0.1)" : "rgba(153, 27, 27, 0.1)",
+                border: `1px solid ${isLong ? "rgba(34, 197, 94, 0.2)" : "rgba(220, 38, 38, 0.2)"}`
+            }}
+            className="font-black text-[8px] px-2 py-0.5 rounded tracking-widest"
+        >
             {isLong ? "LONG" : "SHORT"}
         </span>
     );
@@ -191,8 +206,8 @@ export default function ScannerTable() {
                             <div
                                 onClick={() => setSelectedId(isSelected ? null : id)}
                                 className={cn(
-                                    "grid gap-4 px-4 py-2.5 items-center cursor-pointer transition-all",
-                                    isSelected ? "bg-[#0f1a30]" : isSignal ? "bg-ui-green/[0.03] hover:bg-ui-green/[0.05]" : "hover:bg-white/[0.02]"
+                                    "grid gap-4 px-4 py-2.5 items-center cursor-pointer transition-all relative overflow-hidden",
+                                    isSelected ? "bg-ui-accent/[0.07] border-ui-accent/20" : isSignal ? "bg-ui-green/[0.05] hover:bg-ui-green/[0.08]" : "hover:bg-white/[0.03]"
                                 )}
                                 style={{ gridTemplateColumns: "160px 100px 80px 80px 70px 70px 120px 120px 110px" }}
                             >
