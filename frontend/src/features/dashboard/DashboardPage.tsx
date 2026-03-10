@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Activity, Target, Zap, History, Settings, List, Shield } from 'lucide-react';
+import { Activity, Target, Zap, History, Shield } from 'lucide-react';
 import { fetchPairs, fetchPositions, triggerScan, socket, cn } from '../../lib/api';
 import ScannerTable from '../scanner/components/ScannerTable';
 
