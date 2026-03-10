@@ -1,66 +1,85 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-bg: #f8fafc;
-  --color-brand-card: #ffffff;
-  --color-brand-accent: #3b82f6;
-  --color-brand-safe: #10b981;
-  --color-brand-danger: #ef4444;
-  --color-brand-warning: #f59e0b;
-  --font-mono: 'JetBrains Mono', monospace;
+  --color-bg-main: #06080f;
+  --color-bg-card: #0b1120;
+  --color-bg-card-hover: #0f172a;
+  --color-ui-border: #151f35;
+  --color-ui-accent: #2d7aed;
+  --color-ui-cyan: #06b6d4;
+  --color-ui-green: #10b981;
+  --color-ui-red: #ef4444;
+  --color-ui-orange: #f59e0b;
+  --color-text-main: #c8d6e5;
+  --color-text-dim: #5a6a82;
+  
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
   --font-sans: 'Inter', system-ui, sans-serif;
 }
 
 @layer base {
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
   body {
-    background-color: #f1f5f9;
-    color: #1e293b;
-    font-family: var(--font-sans);
+    background-color: var(--color-bg-main);
+    color: var(--color-text-main);
+    font-family: 'IBM Plex Mono', monospace;
+    font-style: normal;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
 @layer components {
-  .dashboard-card {
-    @apply bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden;
+  .premium-card {
+    @apply bg-bg-card border border-ui-border rounded-xl shadow-2xl;
   }
   
-  .stat-card {
-    @apply bg-white rounded-lg border border-slate-200 p-4 shadow-sm transition-all hover:shadow-md;
+  .glass-panel {
+    @apply bg-bg-card/80 backdrop-blur-md border border-white/5;
   }
 
-  .btn-primary {
-    @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50;
+  .btn-action {
+    @apply px-4 py-2 rounded-lg font-bold text-[10px] tracking-wider uppercase transition-all active:scale-95 disabled:opacity-50;
   }
 
-  .btn-secondary {
-    @apply bg-slate-100 text-slate-700 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:bg-slate-200 active:scale-95;
+  .stat-box {
+    @apply flex flex-col items-center justify-center p-4 border-r border-ui-border last:border-r-0;
   }
 
-  .tab-item {
-    @apply px-4 py-2 text-sm font-medium rounded-lg transition-all;
+  .tab-trigger {
+    @apply px-5 py-2 text-[10px] font-bold tracking-widest uppercase transition-all border-b-2 border-transparent hover:text-ui-cyan;
   }
 
-  .tab-item-active {
-    @apply bg-blue-50 text-blue-600 border border-blue-100;
-  }
-
-  .tab-item-inactive {
-    @apply text-slate-500 hover:text-slate-700 hover:bg-slate-50;
+  .tab-trigger-active {
+    @apply text-ui-cyan border-ui-cyan bg-bg-card;
   }
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: #06080f;
 }
 ::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
+  background: #151f35;
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
+  background: #1e293b;
 }
+
+/* Animations */
+@keyframes pulse-soft {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
