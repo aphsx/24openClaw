@@ -1,10 +1,18 @@
 import axios from 'axios';
 import { io } from 'socket.io-client';
+import { twMerge } from 'tailwind-merge';
+import { clsx, type ClassValue } from 'clsx';
 
-export const socket = io('http://localhost:3001');
+export function cn(...inputs: ClassValue[]) {
+    return twMerge(clsx(inputs));
+}
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+export const socket = io(API_URL);
 
 const api = axios.create({
-    baseURL: 'http://localhost:3001/api',
+    baseURL: `${API_URL}/api`,
 });
 
 export const fetchPairs = async () => {

@@ -1,0 +1,13 @@
+ccxt
+pandas
+statsmodels
+asyncpg
+redis
+fastapi
+uvicorn
+python-dotenv
+pydantic
+scipy
+psycopg2-binary
+python-socketio
+aiohttp

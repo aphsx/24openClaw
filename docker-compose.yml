@@ -25,8 +25,8 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
 
-  app:
-    build: .
+  api:
+    build: ./server
     restart: always
     depends_on:
       postgres: { condition: service_healthy }
@@ -35,6 +35,15 @@ services:
       DATABASE_URL: postgresql://trader:${DB_PASSWORD:-changeme}@postgres:5432/pairs_trading
       REDIS_URL: redis://redis:6379
     ports: ["3001:3001"]
+
+  frontend:
+    build: ./frontend
+    restart: always
+    ports: ["5173:5173"]
+    environment:
+      - VITE_API_URL=http://localhost:3001
+    depends_on:
+      - api
 
 volumes:
   pgdata:

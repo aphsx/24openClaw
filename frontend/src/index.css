@@ -1,19 +1,66 @@
 @import "tailwindcss";
 
 @theme {
-  --color-brand-bg: #0a0e17;
-  --color-brand-card: #111827;
+  --color-brand-bg: #f8fafc;
+  --color-brand-card: #ffffff;
   --color-brand-accent: #3b82f6;
-  --color-brand-safe: #22c55e;
+  --color-brand-safe: #10b981;
   --color-brand-danger: #ef4444;
-  --color-brand-caution: #f97316;
+  --color-brand-warning: #f59e0b;
   --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
 }
 
 @layer base {
   body {
-    background-color: var(--color-brand-bg);
-    color: white;
-    font-family: var(--font-mono);
+    background-color: #f1f5f9;
+    color: #1e293b;
+    font-family: var(--font-sans);
   }
+}
+
+@layer components {
+  .dashboard-card {
+    @apply bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden;
+  }
+  
+  .stat-card {
+    @apply bg-white rounded-lg border border-slate-200 p-4 shadow-sm transition-all hover:shadow-md;
+  }
+
+  .btn-primary {
+    @apply bg-blue-600 text-white px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply bg-slate-100 text-slate-700 px-4 py-2 rounded-lg font-semibold text-sm transition-all hover:bg-slate-200 active:scale-95;
+  }
+
+  .tab-item {
+    @apply px-4 py-2 text-sm font-medium rounded-lg transition-all;
+  }
+
+  .tab-item-active {
+    @apply bg-blue-50 text-blue-600 border border-blue-100;
+  }
+
+  .tab-item-inactive {
+    @apply text-slate-500 hover:text-slate-700 hover:bg-slate-50;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
