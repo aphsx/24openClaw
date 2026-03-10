@@ -36,9 +36,17 @@ export class PairsScanner {
             // ═══ Step 2: ดึง Ticker กรอง Volume > $20M ═══
             const tickers = await this.exchange.fetchTickers(symbols);
             const qualified = Object.entries(tickers)
-                .filter(([_, t]: [string, any]) => (t.quoteVolume || 0) > 20_000_000)
-                .map(([sym, t]: [string, any]) => ({ symbol: sym.split('/')[0], price: t.last, vol: t.quoteVolume }))
+                .filter(([_, t]: [string, any]) => {
+                    const usdVolume = t.quoteVolume || (parseFloat(t.info?.volCcy24h || '0') * t.last) || 0;
+                    return usdVolume > 20_000_000;
+                })
+                .map(([sym, t]: [string, any]) => {
+                    const usdVolume = t.quoteVolume || (parseFloat(t.info?.volCcy24h || '0') * t.last) || 0;
+                    return { symbol: sym.split('/')[0], price: t.last, vol: usdVolume };
+                })
                 .slice(0, 25); // จำกัด 25 เหรียญ (325 คู่)
+
+            console.log(`Qualified coins: ${qualified.length}`);
 
             // ═══ Step 3: ดึง OHLCV 180 วัน (cached ใน DB) ═══
             const closes: Record<string, number[]> = {};
@@ -73,7 +81,7 @@ export class PairsScanner {
 
                     // Correlation
                     const corr = ind.correlation(a, b);
-                    if (corr === null || corr < cfgCorr) continue;
+                    if (corr === null) continue;
 
                     // Hedge Ratio
                     const beta = ind.hedgeRatio(a, b);
@@ -84,11 +92,11 @@ export class PairsScanner {
 
                     // Half-Life
                     const hl = ind.halfLife(spreads);
-                    if (hl === null || hl < cfgHlMin || hl > cfgHlMax) continue;
+                    if (hl === null) continue;
 
                     // Hurst (ต้อง < 0.5 = mean-reverting)
                     const hurst = ind.hurstExponent(spreads);
-                    if (hurst === null || hurst >= 0.5) continue;
+                    if (hurst === null) continue;
 
                     // Z-Score
                     const recent60 = spreads.slice(-60);
@@ -96,6 +104,9 @@ export class PairsScanner {
                     const spreadSd = Math.sqrt(recent60.reduce((acc, v) => acc + (v - spreadMean) ** 2, 0) / recent60.length);
                     const z = ind.zScore(spreads[spreads.length - 1], spreadMean, spreadSd);
                     if (z === null) continue;
+
+                    // Check if passes stat checks
+                    const passedStats = corr >= cfgCorr && hl >= cfgHlMin && hl <= cfgHlMax && hurst < 0.5;
 
                     // Zone classification
                     const zone = classifyZone(z, { zscore_entry: cfgEntry, zscore_sl: cfgSl, safe_buffer: cfgBuf });
@@ -106,14 +117,20 @@ export class PairsScanner {
                     // Direction
                     const direction = z > 0 ? { legA: 'sell', legB: 'buy' } : { legA: 'buy', legB: 'sell' };
 
+                    const canOpenFinal = zone.canOpen && dedupResult.pass && passedStats;
+
                     pairs.push({
                         symbolA: symA, symbolB: symB,
-                        correlation: corr, hurst, halfLife: hl, hedgeRatio: beta,
-                        zscore: z, zone: zone.zone, canOpen: zone.canOpen && dedupResult.pass,
+                        correlation: corr,
+                        hurst: Math.max(-9999, Math.min(9999, hurst)),
+                        halfLife: Math.max(-9999, Math.min(9999, hl)),
+                        hedgeRatio: Math.max(-9999, Math.min(9999, beta)),
+                        zscore: Math.max(-9999, Math.min(9999, z)),
+                        zone: zone.zone, canOpen: canOpenFinal,
                         sizePct: zone.sizePct, direction,
                         dedupChecks: dedupResult.checks,
-                        blocked: Math.abs(z) >= cfgEntry && (!zone.canOpen || !dedupResult.pass),
-                        blockReason: !zone.canOpen ? `Zone: ${zone.zone}` : !dedupResult.pass ? 'Dedup failed' : null,
+                        blocked: Math.abs(z) >= cfgEntry && (!canOpenFinal),
+                        blockReason: !passedStats ? 'Stats failed' : !zone.canOpen ? `Zone: ${zone.zone}` : !dedupResult.pass ? 'Dedup failed' : null,
                     });
                 }
             }

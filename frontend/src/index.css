@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-bg: #0a0e17;
+  --color-brand-card: #111827;
+  --color-brand-accent: #3b82f6;
+  --color-brand-safe: #22c55e;
+  --color-brand-danger: #ef4444;
+  --color-brand-caution: #f97316;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-brand-bg);
+    color: white;
+    font-family: var(--font-mono);
+  }
+}

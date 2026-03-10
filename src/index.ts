@@ -3,6 +3,7 @@ import { Pool } from 'pg';
 import Redis from 'ioredis';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import { Server } from 'socket.io';
 
 import { StateManager } from './core/state-manager';
 import { ConfigManager } from './core/config-manager';
@@ -33,9 +34,23 @@ async function main() {
     // ═══ API ═══
     const app = Fastify();
     await app.register(cors, { origin: true });
-    registerRoutes(app, { scanner, stateManager, configManager, db });
+
+    // Add socket.io
+    const io = new Server(app.server, {
+        cors: {
+            origin: '*',
+            methods: ['GET', 'POST']
+        }
+    });
+
+    registerRoutes(app, { scanner, stateManager, configManager, db, io });
     await app.listen({ port: 3001, host: '0.0.0.0' });
     console.log('API ready on :3001');
+
+    io.on('connection', (socket) => {
+        console.log('Client connected to Socket.IO:', socket.id);
+        socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
+    });
 
     // ═══ Auto Scan ═══
     const scanInterval = await configManager.get('scan_interval_sec');
@@ -44,6 +59,12 @@ async function main() {
             const result = await scanner.scan();
             if (!result.skipped) {
                 console.log(`[Scan] ${result.signals?.length || 0} signals / ${result.total} pairs / ${result.duration}ms`);
+
+                // ส่งข้อมูลอัปเดตไปให้ฝั่ง Frontend
+                const { rows } = await db.query(
+                    `SELECT * FROM pairs ORDER BY CASE WHEN qualified THEN 0 ELSE 1 END, ABS(zscore) DESC`
+                );
+                io.emit('pairs_update', rows);
             }
         } catch (e: any) {
             console.error('[Scan Error]', e.message);

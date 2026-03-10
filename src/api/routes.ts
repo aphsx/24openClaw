@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 
-export function registerRoutes(app: FastifyInstance, { scanner, stateManager, configManager, db }: any) {
+export function registerRoutes(app: FastifyInstance, { scanner, stateManager, configManager, db, io }: any) {
 
     // ดึงผลสแกนล่าสุด
     app.get('/api/pairs', async () => {
@@ -23,6 +23,14 @@ export function registerRoutes(app: FastifyInstance, { scanner, stateManager, co
     // สั่งสแกนทันที
     app.post('/api/scan/trigger', async () => {
         const result = await scanner.scan();
+
+        if (io) {
+            const { rows } = await db.query(
+                `SELECT * FROM pairs ORDER BY CASE WHEN qualified THEN 0 ELSE 1 END, ABS(zscore) DESC`
+            );
+            io.emit('pairs_update', rows);
+        }
+
         return result;
     });
 
