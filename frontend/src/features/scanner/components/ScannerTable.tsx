@@ -91,7 +91,7 @@ function ValidationPanel({ pair }: { pair: any }) {
     const passCount = checks.filter(c => c.pass).length;
 
     return (
-        <div className="mt-2 p-4 bg-[#0c1222] border border-[#1e3a5f] rounded-lg animate-in slide-in-from-top duration-300">
+        <div className="mt-2 p-4 bg-[#0c1222] border border-[#1e3a5f] rounded-lg">
             <div className="flex justify-between items-center mb-3">
                 <span className="text-xs font-bold text-ui-cyan uppercase tracking-widest">
                     Validation Protocol — {pair.symbol_a}/{pair.symbol_b}
@@ -144,8 +144,8 @@ export default function ScannerTable() {
 
     if (isLoading) return (
         <div className="p-32 text-center text-[#5a6a82] flex flex-col items-center justify-center space-y-4">
-            <RefreshCw className="h-8 w-8 animate-spin text-ui-cyan" />
-            <span className="font-bold animate-pulse text-[10px] uppercase tracking-[0.3em]">Synchronizing Market Data...</span>
+            <RefreshCw className="h-8 w-8 text-ui-cyan" />
+            <span className="font-bold text-[10px] uppercase tracking-[0.3em]">Synchronizing Market Data...</span>
         </div>
     );
 
@@ -185,7 +185,7 @@ export default function ScannerTable() {
     ];
 
     return (
-        <div className="overflow-x-auto p-4 animate-in fade-in duration-500">
+        <div className="overflow-x-auto p-4">
             {/* Header */}
             <div className="grid grid-template-cols gap-4 px-4 py-2 bg-[#080d18] rounded-t-lg border-x border-t border-[#151f35]" style={{ gridTemplateColumns: "160px 100px 80px 80px 70px 70px 120px 120px 110px" }}>
                 {columns.map((col, idx) => (

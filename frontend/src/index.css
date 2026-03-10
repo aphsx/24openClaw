@@ -30,31 +30,6 @@
   }
 }
 
-@layer components {
-  .premium-card {
-    @apply bg-bg-card border border-ui-border rounded-xl shadow-2xl;
-  }
-  
-  .glass-panel {
-    @apply bg-bg-card/80 backdrop-blur-md border border-white/5;
-  }
-
-  .btn-action {
-    @apply px-4 py-2 rounded-lg font-bold text-[10px] tracking-wider uppercase transition-all active:scale-95 disabled:opacity-50;
-  }
-
-  .stat-box {
-    @apply flex flex-col items-center justify-center p-4 border-r border-ui-border last:border-r-0;
-  }
-
-  .tab-trigger {
-    @apply px-5 py-2 text-[10px] font-bold tracking-widest uppercase transition-all border-b-2 border-transparent hover:text-ui-cyan;
-  }
-
-  .tab-trigger-active {
-    @apply text-ui-cyan border-ui-cyan bg-bg-card;
-  }
-}
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
@@ -70,16 +45,5 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #1e293b;
-}
-
-/* Animations */
-@keyframes pulse-soft {
-  0% { opacity: 1; }
-  50% { opacity: 0.6; }
-  100% { opacity: 1; }
-}
-
-.animate-pulse-soft {
-  animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 

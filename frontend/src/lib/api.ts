@@ -30,10 +30,6 @@ export const fetchPositions = async () => {
     return data;
 };
 
-export const fetchTrades = async () => {
-    const { data } = await api.get('/trades');
-    return data;
-};
 
 export const fetchConfig = async () => {
     const { data } = await api.get('/config');
