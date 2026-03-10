@@ -26,7 +26,8 @@ CREATE TABLE pairs (
     zone            VARCHAR(10),
     qualified       BOOLEAN DEFAULT false,
     validation_json JSONB,
-    scanned_at      TIMESTAMPTZ,
+    scanned_at           TIMESTAMPTZ,
+    cointegration_pvalue DECIMAL(8,6),
     UNIQUE(symbol_a, symbol_b)
 );
 
@@ -99,4 +100,5 @@ INSERT INTO config (key, value, description) VALUES
 ('cooldown_sec',      3600,   'Cooldown after close'),
 ('max_same_coin',     2,      'Max pairs per coin'),
 ('position_size_usd', 500,    'USD per leg'),
-('scan_interval_sec', 60,     'Scan interval');
+('scan_interval_sec', 60,     'Scan interval'),
+('pvalue_max',        0.05,   'Max cointegration p-value (ADF test)');

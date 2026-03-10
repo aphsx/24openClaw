@@ -100,7 +100,7 @@ class PairsScanner:
         
         await self.db.save_scan_result(
             total=len(pairs_data),
-            qualified=len([p for p in pairs_data if p['correlation'] >= config['corr_min']]),
+            qualified=len([p for p in pairs_data if p['qualified']]),
             signals=len(signals),
             blocked=0, # Simplified
             duration=duration,

@@ -73,9 +73,9 @@ async def shutdown_event():
 async def get_pairs():
     async with (await get_db_conn()) as conn:
         rows = await conn.fetch("""
-            SELECT symbol_a, symbol_b, correlation, hurst_exp, half_life, 
-                   zscore, zone, qualified, scanned_at, cointegration_pvalue
-            FROM pairs 
+            SELECT symbol_a, symbol_b, correlation, hurst_exp, half_life,
+                   hedge_ratio, zscore, zone, qualified, scanned_at, cointegration_pvalue
+            FROM pairs
             ORDER BY CASE WHEN qualified THEN 0 ELSE 1 END, ABS(zscore) DESC
         """)
         return [dict(r) for r in rows]
