@@ -1,12 +1,12 @@
 import asyncio
 import time
 import json
-from .exchange import OKXClient
+from .exchange import BinanceClient
 from .models import DBManager
 from .stats import compute_pair_stats, classify_zone
 
 class PairsScanner:
-    def __init__(self, exchange: OKXClient):
+    def __init__(self, exchange: BinanceClient):
         self.exchange = exchange
         self.db = DBManager()
 

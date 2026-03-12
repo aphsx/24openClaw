@@ -1,24 +1,61 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-    Zap,
-    Shield,
-    RefreshCw,
-    BarChart3,
-    Activity,
-    ChevronLeft,
-    Database,
-    LayoutDashboard,
-    Wallet,
-    TrendingUp,
-    Lock,
-    Settings,
-    Layers,
-    AlertCircle,
-    Unplug
+    Zap, Shield, RefreshCw, BarChart3, Activity,
+    ChevronLeft, Database, LayoutDashboard, Wallet,
+    TrendingUp, Lock, Settings, Layers, AlertCircle,
+    Unplug, X, Loader2
 } from 'lucide-react';
-import { fetchPairs, fetchPositions, triggerScan, socket, cn } from '../../lib/api';
+import { fetchPortfolio, fetchPositions, triggerScan, closeTrade, socket, cn } from '../../lib/api';
 import ScannerTable from '../scanner/components/ScannerTable';
+
+// ─── Small helpers ────────────────────────────────────
+
+function fmt(v: number, prefix = '$', decimals = 2) {
+    const abs = Math.abs(v);
+    const str = abs.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    return `${v < 0 ? '-' : ''}${prefix}${str}`;
+}
+
+function pct(v: number) {
+    return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+}
+
+// ─── Close button with confirmation ──────────────────
+
+function CloseBtn({ groupId, onClose }: { groupId: string; onClose: () => void }) {
+    const [confirm, setConfirm] = useState(false);
+    const mutation = useMutation({
+        mutationFn: () => closeTrade(groupId, 'manual'),
+        onSuccess: onClose,
+    });
+
+    if (confirm) {
+        return (
+            <div className="flex items-center gap-1">
+                <button onClick={() => mutation.mutate()}
+                    disabled={mutation.isPending}
+                    className="text-[8px] font-black px-2 py-1 rounded bg-ui-red/20 border border-ui-red/40 text-ui-red hover:bg-ui-red/30 transition-colors flex items-center gap-1">
+                    {mutation.isPending ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : null}
+                    CONFIRM
+                </button>
+                <button onClick={() => setConfirm(false)}
+                    className="text-[8px] font-black px-2 py-1 rounded bg-white/5 border border-white/10 text-[#5a6a82] hover:text-white transition-colors">
+                    CANCEL
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <button onClick={() => setConfirm(true)}
+            className="flex items-center gap-1 text-[8px] font-black px-2 py-1 rounded border border-[#151f35] text-[#5a6a82] hover:border-ui-red/40 hover:text-ui-red transition-colors">
+            <X className="w-2.5 h-2.5" /> CLOSE
+        </button>
+    );
+}
+
+// ─── Main Page ────────────────────────────────────────
 
 export default function DashboardPage() {
     const queryClient = useQueryClient();
@@ -29,23 +66,36 @@ export default function DashboardPage() {
     const [lastScan, setLastScan] = useState(new Date());
 
     useEffect(() => {
-        socket.on('connect', () => setIsConnected(true));
+        socket.on('connect',    () => setIsConnected(true));
         socket.on('disconnect', () => setIsConnected(false));
         socket.on('pairs_update', () => {
             queryClient.invalidateQueries({ queryKey: ['pairs'] });
             setScanCount(c => c + 1);
             setLastScan(new Date());
         });
-
+        socket.on('positions_update', () => {
+            queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+            queryClient.invalidateQueries({ queryKey: ['positions'] });
+        });
         return () => {
             socket.off('connect');
             socket.off('disconnect');
             socket.off('pairs_update');
+            socket.off('positions_update');
         };
     }, [queryClient]);
 
-    const { data: pairsData, isError: isPairsError } = useQuery({ queryKey: ['pairs'], queryFn: fetchPairs, refetchInterval: autoScan ? 5000 : false });
-    const { data: positionsData, isError: isPositionsError } = useQuery({ queryKey: ['positions'], queryFn: fetchPositions });
+    const { data: portfolio, isError: isPortfolioError } = useQuery({
+        queryKey: ['portfolio'],
+        queryFn: fetchPortfolio,
+        refetchInterval: 30_000,
+    });
+
+    const { data: positionsData, isError: isPositionsError } = useQuery({
+        queryKey: ['positions'],
+        queryFn: fetchPositions,
+        refetchInterval: 30_000,
+    });
 
     const scanMutation = useMutation({
         mutationFn: triggerScan,
@@ -56,42 +106,36 @@ export default function DashboardPage() {
         },
     });
 
-    const runScan = () => scanMutation.mutate();
-
-    // Derived State
-    const hasApiControl = isConnected && !isPositionsError;
-    const exchangePositions = positionsData?.filter((p: any) => !p.is_pair) || [];
-    const pairPositions = positionsData?.filter((p: any) => p.is_pair) || [];
+    const hasApiControl = isConnected && !isPortfolioError;
+    const balance       = portfolio?.balance || {};
+    const openPositions: any[] = portfolio?.open_positions || positionsData || [];
 
     const portfolioStats = [
-        { label: "TOTAL EQUITY", value: hasApiControl ? "$0.00" : "N/A", icon: Wallet, glow: true, color: "text-white", sub: hasApiControl ? "Live" : "API Required" },
-        { label: "AVAILABLE", value: hasApiControl ? "$0.00" : "N/A", icon: Database, color: "text-ui-accent" },
-        { label: "UNREALIZED P&L", value: hasApiControl ? "$0.0000" : "N/A", icon: TrendingUp, color: "text-ui-green" },
-        { label: "FROZEN", value: hasApiControl ? "$0.00" : "N/A", icon: Lock, color: "text-ui-orange" },
-        { label: "ACCOUNT TYPE", value: hasApiControl ? "Spot/Futures" : "UNKNOWN", icon: Settings, color: "text-[#c8d6e5]" },
-        { label: "POS MODE", icon: Layers, value: hasApiControl ? "Hedge" : "UNKNOWN", color: "text-[#c8d6e5]" },
+        { label: "TOTAL EQUITY",   value: hasApiControl ? fmt(balance.total_usdt || 0) : "N/A",            icon: Wallet,    glow: true, color: "text-white",      sub: hasApiControl ? "USDT-M" : "API Required" },
+        { label: "AVAILABLE",      value: hasApiControl ? fmt(balance.free_usdt  || 0) : "N/A",            icon: Database,  color: "text-ui-accent" },
+        { label: "UNREALIZED P&L", value: hasApiControl ? fmt(portfolio?.unrealized_pnl || 0) : "N/A",    icon: TrendingUp, color: (portfolio?.unrealized_pnl || 0) >= 0 ? "text-ui-green" : "text-ui-red" },
+        { label: "REALIZED P&L",   value: hasApiControl ? fmt(portfolio?.realized_pnl  || 0) : "N/A",    icon: Lock,      color: (portfolio?.realized_pnl  || 0) >= 0 ? "text-ui-green" : "text-ui-red" },
+        { label: "OPEN PAIRS",     value: hasApiControl ? String(portfolio?.open_pairs  || 0) : "N/A",   icon: Settings,  color: "text-[#c8d6e5]" },
+        { label: "WIN RATE",       value: hasApiControl ? `${portfolio?.win_rate || 0}%` : "N/A",         icon: Layers,    color: "text-[#c8d6e5]" },
     ];
 
     const subStats = [
-        { label: "REALIZED P&L", value: "$0.00", color: "text-ui-green" },
-        { label: "TOTAL FEES", value: "$0.00", color: "text-[#5a6a82]" },
-        { label: "TOTAL TRADES", value: "0", color: "text-white" },
-        { label: "OPEN POS", value: exchangePositions.length.toString(), color: "text-ui-accent" },
-        { label: "PAIR TRADES", value: pairPositions.length.toString(), color: "text-ui-green" },
-        { label: "WIN RATE", value: "0%", color: "text-[#5a6a82]" },
-        { label: "AVG WIN", value: "+0.00%", color: "text-ui-green" },
-        { label: "AVG LOSS", value: "+0.00%", color: "text-ui-red" },
-        { label: "PROFIT FACTOR", value: "0", color: "text-[#5a6a82]" },
-        { label: "BEST TRADE", value: "+0.00%", color: "text-ui-green" },
-        { label: "WORST TRADE", value: "+0.00%", color: "text-ui-red" },
+        { label: "TOTAL TRADES",   value: hasApiControl ? String(portfolio?.total_trades || 0) : "—",    color: "text-white" },
+        { label: "WINS",           value: hasApiControl ? String(portfolio?.wins  || 0) : "—",           color: "text-ui-green" },
+        { label: "LOSSES",         value: hasApiControl ? String(portfolio?.losses || 0) : "—",          color: "text-ui-red" },
+        { label: "TOTAL FEES",     value: hasApiControl ? fmt(portfolio?.total_fees || 0) : "—",         color: "text-[#5a6a82]" },
+        { label: "AVG WIN",        value: hasApiControl ? fmt(portfolio?.avg_win   || 0) : "—",          color: "text-ui-green" },
+        { label: "AVG LOSS",       value: hasApiControl ? fmt(portfolio?.avg_loss  || 0) : "—",          color: "text-ui-red" },
+        { label: "BEST TRADE",     value: hasApiControl ? fmt(portfolio?.best_trade  || 0) : "—",        color: "text-ui-green" },
+        { label: "WORST TRADE",    value: hasApiControl ? fmt(portfolio?.worst_trade || 0) : "—",        color: "text-ui-red" },
+        { label: "SCAN COUNT",     value: String(scanCount),                                              color: "text-ui-accent" },
+        { label: "LAST SCAN",      value: lastScan.toLocaleTimeString(),                                  color: "text-[#5a6a82]" },
     ];
 
     const tabs = [
-        { id: "overview", label: "OVERVIEW" },
-        { id: "positions", label: "POSITIONS" },
-        { id: "history", label: "HISTORY" },
+        { id: "positions",   label: "POSITIONS" },
+        { id: "scanner",     label: "SCANNER" },
         { id: "performance", label: "PERFORMANCE" },
-        { id: "scanner", label: "SCANNER" },
     ];
 
     return (
@@ -113,23 +157,35 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="flex items-center gap-6">
-                        <div className={cn(
-                            "flex items-center gap-1.5 px-3 py-1 border rounded-md transition-colors",
-                            isConnected ? "bg-ui-green/5 border-ui-green/20" : "bg-ui-red/5 border-ui-red/20"
-                        )}>
+                        {/* Auto-scan toggle */}
+                        <button
+                            onClick={() => setAutoScan(v => !v)}
+                            className={cn("flex items-center gap-1.5 px-3 py-1 border rounded-md text-[9px] font-black uppercase tracking-widest transition-colors",
+                                autoScan ? "bg-ui-accent/10 border-ui-accent/30 text-ui-accent" : "border-[#151f35] text-[#5a6a82] hover:text-[#c8d6e5]")}>
+                            <Zap className="w-3 h-3" />
+                            AUTO
+                        </button>
+
+                        {/* Manual scan */}
+                        <button
+                            onClick={() => scanMutation.mutate()}
+                            disabled={scanMutation.isPending}
+                            className="flex items-center gap-1.5 px-3 py-1 border border-[#151f35] rounded-md text-[9px] font-black uppercase tracking-widest text-[#5a6a82] hover:text-[#c8d6e5] transition-colors disabled:opacity-40">
+                            <RefreshCw className={cn("w-3 h-3", scanMutation.isPending && "animate-spin")} />
+                            SCAN
+                        </button>
+
+                        {/* Connection status */}
+                        <div className={cn("flex items-center gap-1.5 px-3 py-1 border rounded-md",
+                            isConnected ? "bg-ui-green/5 border-ui-green/20" : "bg-ui-red/5 border-ui-red/20")}>
                             <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-ui-green" : "bg-ui-red animate-pulse")} />
                             <span className={cn("text-[9px] font-black uppercase tracking-widest", isConnected ? "text-ui-green" : "text-ui-red")}>
                                 {isConnected ? "CONNECTED" : "OFFLINE"}
                             </span>
                         </div>
-                        <div className="flex flex-col items-end">
-                            <span className="text-[8px] text-[#5a6a82] font-bold uppercase tracking-widest">Account UID</span>
-                            <span className="text-[10px] font-bold text-white tabular-nums tracking-wide">{hasApiControl ? "6514087624" : "UNLINKED"}</span>
-                        </div>
-                        <button
-                            onClick={() => queryClient.invalidateQueries()}
-                            className="flex items-center gap-2 text-[9px] font-black text-[#5a6a82] hover:text-white transition-colors uppercase tracking-widest"
-                        >
+
+                        <button onClick={() => queryClient.invalidateQueries()}
+                            className="flex items-center gap-2 text-[9px] font-black text-[#5a6a82] hover:text-white transition-colors uppercase tracking-widest">
                             <RefreshCw className="w-3 h-3" />
                             REFRESH
                         </button>
@@ -139,12 +195,8 @@ export default function DashboardPage() {
 
             <main className="max-w-[1800px] mx-auto w-full p-6 space-y-8 flex-1">
 
-                <div className="flex justify-end">
-                    <span className="text-[8px] font-bold text-[#5a6a82] uppercase tracking-[0.2em] italic">LIVE — updates every 30s</span>
-                </div>
-
                 {/* ═══ MAIN STATS CARDS ═══ */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                     {portfolioStats.map((stat, idx) => (
                         <div key={idx} className={cn(
                             "stat-card-premium flex flex-col gap-3 relative overflow-hidden group hover:bg-[#0c1425]",
@@ -158,8 +210,8 @@ export default function DashboardPage() {
                                 <span className={cn("text-xl font-black tracking-tight", stat.color, stat.glow && hasApiControl && "text-glow-blue")}>
                                     {stat.value}
                                 </span>
-                                {!hasApiControl && (
-                                    <span className="text-[7px] font-bold text-ui-red/60 uppercase tracking-tighter mt-1">Connection Required</span>
+                                {'sub' in stat && (
+                                    <span className="text-[7px] font-bold text-[#5a6a82] uppercase tracking-tighter mt-1">{stat.sub}</span>
                                 )}
                             </div>
                         </div>
@@ -179,16 +231,13 @@ export default function DashboardPage() {
                 {/* ═══ TABS ═══ */}
                 <div className="flex items-center gap-1 border-b border-[#151f35] px-2">
                     {tabs.map((tab) => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setView(tab.id)}
+                        <button key={tab.id} onClick={() => setView(tab.id)}
                             className={cn(
                                 "px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase transition-all relative",
                                 view === tab.id
                                     ? "text-ui-accent after:content-[''] after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px] after:bg-ui-accent"
                                     : "text-[#5a6a82] hover:text-[#c8d6e5]"
-                            )}
-                        >
+                            )}>
                             <div className="flex items-center gap-2">
                                 {tab.id === 'positions' && <BarChart3 className="w-3 h-3" />}
                                 {tab.label}
@@ -197,104 +246,90 @@ export default function DashboardPage() {
                     ))}
                 </div>
 
-                {/* ═══ CONTENT AREA ═══ */}
+                {/* ═══ CONTENT ═══ */}
                 <div className="min-h-[500px]">
+
+                    {/* POSITIONS TAB */}
                     {view === 'positions' && (
-                        <div className="space-y-8 animate-in fade-in duration-700">
-                            {/* Exchange Positions Table */}
-                            <div className="space-y-4">
+                        <div className="space-y-6 animate-in fade-in duration-500">
+                            <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2.5">
-                                        <BarChart3 className="w-4 h-4 text-ui-accent" />
-                                        <h2 className="text-[11px] font-black text-white tracking-[0.15em] uppercase">EXCHANGE POSITIONS ({exchangePositions.length})</h2>
+                                        <TrendingUp className="w-4 h-4 text-ui-green" />
+                                        <h2 className="text-[11px] font-black text-white tracking-[0.15em] uppercase">
+                                            OPEN PAIR TRADES ({openPositions.length})
+                                        </h2>
                                     </div>
-                                    <span className="text-[9px] font-bold text-[#5a6a82] uppercase tracking-[0.1em]">Real-time from Exchange API</span>
+                                    <span className="text-[9px] font-bold text-[#5a6a82] uppercase tracking-[0.1em]">
+                                        Live from Binance USDT-M
+                                    </span>
                                 </div>
 
                                 <div className="bg-[#05080f] border border-[#151f35] rounded-lg overflow-hidden">
-                                    {exchangePositions.length > 0 ? (
+                                    {openPositions.length > 0 ? (
                                         <table className="w-full text-left">
                                             <thead>
                                                 <tr className="border-b border-[#151f35] bg-[#080d18]/50">
-                                                    {["INSTRUMENT", "SIDE", "SIZE", "ENTRY", "MARK", "UPL", "UPL %", "LEVER", "MARGIN", "OPENED"].map(h => (
+                                                    {["PAIR", "DIRECTION", "SIZE A", "SIZE B", "ENTRY Z", "CURR Z", "CORR", "UPL", "OPENED", "ACTION"].map(h => (
                                                         <th key={h} className="px-4 py-2.5 text-[8px] font-black text-[#5a6a82] tracking-widest uppercase">{h}</th>
                                                     ))}
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-[#151f35]">
-                                                {exchangePositions.map((row: any, i: number) => (
-                                                    <tr key={i} className="hover:bg-white/[0.02] transition-colors group">
-                                                        <td className="px-4 py-3 text-[10px] font-bold text-white">{row.symbol}</td>
-                                                        <td className="px-4 py-3">
-                                                            <span className={cn("text-[9px] font-black px-1.5 py-0.5 rounded", row.side === "LONG" ? "bg-ui-green/10 text-ui-green" : "bg-ui-red/10 text-ui-red")}>{row.side}</span>
-                                                        </td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-[#c8d6e5]">{row.size}</td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-[#5a6a82]">{row.entry}</td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-[#5a6a82]">{row.mark}</td>
-                                                        <td className={cn("px-4 py-3 text-[10px] font-black tabular-nums", row.pnl >= 0 ? "text-ui-green" : "text-ui-red")}>{row.pnl}</td>
-                                                        <td className={cn("px-4 py-3 text-[10px] font-black tabular-nums", row.pnl >= 0 ? "text-ui-green" : "text-ui-red")}>{row.pnl_pct}%</td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold text-[#c8d6e5]">{row.leverage}x</td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold text-[#c8d6e5]">{row.margin}</td>
-                                                        <td className="px-4 py-3 text-[9px] font-medium text-[#5a6a82] italic whitespace-nowrap">{new Date(row.timestamp).toLocaleTimeString()}</td>
-                                                    </tr>
-                                                ))}
+                                                {openPositions.map((row: any) => {
+                                                    const pnl = row.unrealized_pnl ?? 0;
+                                                    return (
+                                                        <tr key={row.group_id} className="hover:bg-white/[0.02] transition-colors">
+                                                            <td className="px-4 py-3 text-[10px] font-bold text-white whitespace-nowrap">
+                                                                {row.symbol_a}/{row.symbol_b}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <div className="flex gap-1 items-center">
+                                                                    <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded",
+                                                                        row.leg_a_side === 'sell' ? "bg-ui-red/10 text-ui-red" : "bg-ui-green/10 text-ui-green")}>
+                                                                        {row.leg_a_side === 'sell' ? 'SHORT' : 'LONG'} A
+                                                                    </span>
+                                                                    <span className={cn("text-[8px] font-black px-1.5 py-0.5 rounded",
+                                                                        row.leg_b_side === 'buy' ? "bg-ui-green/10 text-ui-green" : "bg-ui-red/10 text-ui-red")}>
+                                                                        {row.leg_b_side === 'buy' ? 'LONG' : 'SHORT'} B
+                                                                    </span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-[10px] tabular-nums text-[#c8d6e5]">${Number(row.size_a_usd).toFixed(0)}</td>
+                                                            <td className="px-4 py-3 text-[10px] tabular-nums text-[#c8d6e5]">${Number(row.size_b_usd).toFixed(0)}</td>
+                                                            <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-ui-accent">{Number(row.entry_zscore).toFixed(3)}</td>
+                                                            <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-ui-accent">{Number(row.current_zscore).toFixed(3)}</td>
+                                                            <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-[#c8d6e5]">{Number(row.entry_corr).toFixed(3)}</td>
+                                                            <td className={cn("px-4 py-3 text-[10px] font-black tabular-nums", pnl >= 0 ? "text-ui-green" : "text-ui-red")}>
+                                                                {fmt(pnl)}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-[9px] text-[#5a6a82] italic whitespace-nowrap">
+                                                                {row.opened_at ? new Date(row.opened_at).toLocaleString() : '—'}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <CloseBtn
+                                                                    groupId={row.group_id}
+                                                                    onClose={() => {
+                                                                        queryClient.invalidateQueries({ queryKey: ['portfolio'] });
+                                                                        queryClient.invalidateQueries({ queryKey: ['positions'] });
+                                                                    }}
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     ) : (
                                         <div className="p-20 flex flex-col items-center justify-center space-y-3 opacity-30">
-                                            {isPositionsError ? <Unplug className="w-8 h-8 text-ui-red" /> : <Database className="w-8 h-8" />}
+                                            {isPositionsError ? <Unplug className="w-8 h-8 text-ui-red" /> : <Layers className="w-8 h-8" />}
                                             <div className="text-center">
                                                 <p className="text-[10px] font-black uppercase tracking-widest text-[#c8d6e5]">
-                                                    {isPositionsError ? "API BRIDGE OFFLINE" : "NO ACTIVE POSITIONS"}
+                                                    {isPositionsError ? "API BRIDGE OFFLINE" : "NO ACTIVE PAIR TRADES"}
                                                 </p>
                                                 <p className="text-[8px] font-bold uppercase tracking-widest text-[#5a6a82] mt-1">
-                                                    {isPositionsError ? "Check backend connection status" : "Connect your exchange to monitor active trades"}
+                                                    {isPositionsError ? "Check backend connection" : "Scanner will trigger entries when Z-Score ≥ 2.0"}
                                                 </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* Pair Trade Positions Table */}
-                            <div className="space-y-4">
-                                <div className="flex items-center gap-2.5">
-                                    <TrendingUp className="w-4 h-4 text-ui-green" />
-                                    <h2 className="text-[11px] font-black text-white tracking-[0.15em] uppercase">PAIR TRADE POSITIONS ({pairPositions.length})</h2>
-                                </div>
-                                <div className="bg-[#05080f] border border-[#151f35] rounded-lg overflow-hidden">
-                                    {pairPositions.length > 0 ? (
-                                        <table className="w-full text-left">
-                                            <thead>
-                                                <tr className="border-b border-[#151f35] bg-[#080d18]/50">
-                                                    {["PAIR", "DIRECTION", "LEG A", "LEG B", "ENTRY Z", "CURRENT Z", "P&L", "STATUS"].map(h => (
-                                                        <th key={h} className="px-4 py-2.5 text-[8px] font-black text-[#5a6a82] tracking-widest uppercase">{h}</th>
-                                                    ))}
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-[#151f35]">
-                                                {pairPositions.map((row: any, i: number) => (
-                                                    <tr key={i} className="hover:bg-white/[0.02] transition-colors">
-                                                        <td className="px-4 py-3 text-[10px] font-bold text-white">{row.pair}</td>
-                                                        <td className="px-4 py-3 text-[9px] font-black text-ui-accent">{row.direction}</td>
-                                                        <td className="px-4 py-3 text-[9px] font-bold text-ui-red">{row.leg_a}</td>
-                                                        <td className="px-4 py-3 text-[9px] font-bold text-ui-green">{row.leg_b}</td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-ui-accent">{row.entry_z}</td>
-                                                        <td className="px-4 py-3 text-[10px] font-bold tabular-nums text-ui-accent">{row.current_z}</td>
-                                                        <td className={cn("px-4 py-3 text-[10px] font-bold", row.pnl >= 0 ? "text-ui-green" : "text-ui-red")}>{row.pnl}%</td>
-                                                        <td className="px-4 py-3">
-                                                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-ui-green/10 text-ui-green border border-ui-green/20">{row.status}</span>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    ) : (
-                                        <div className="p-20 flex flex-col items-center justify-center space-y-3 opacity-30">
-                                            <Layers className="w-8 h-8" />
-                                            <div className="text-center">
-                                                <p className="text-[10px] font-black uppercase tracking-widest text-[#c8d6e5]">NO ACTIVE PAIR TRADES</p>
-                                                <p className="text-[8px] font-bold uppercase tracking-widest text-[#5a6a82] mt-1">Scanner will automatically trigger entries when Z-Score ≥ 2.5</p>
                                             </div>
                                         </div>
                                     )}
@@ -305,33 +340,54 @@ export default function DashboardPage() {
 
                     {view === 'scanner' && <ScannerTable />}
 
-                    {view === 'overview' && (
-                        <div className="flex flex-col items-center justify-center p-32 space-y-4 opacity-40">
-                            <Activity className="w-12 h-12 text-[#5a6a82]" />
-                            <span className="text-xs font-black uppercase tracking-widest text-center">Aggregation Engine Priming...</span>
+                    {view === 'performance' && (
+                        <div className="bg-[#05080f] border border-[#151f35] rounded-lg p-8">
+                            <h2 className="text-[11px] font-black text-white tracking-[0.15em] uppercase mb-6">PERFORMANCE SUMMARY</h2>
+                            {hasApiControl ? (
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                                    {[
+                                        { label: "Realized P&L",  val: fmt(portfolio?.realized_pnl || 0),  color: (portfolio?.realized_pnl || 0) >= 0 ? "text-ui-green" : "text-ui-red" },
+                                        { label: "Total Fees",    val: fmt(portfolio?.total_fees || 0),     color: "text-[#5a6a82]" },
+                                        { label: "Total Trades",  val: String(portfolio?.total_trades || 0), color: "text-white" },
+                                        { label: "Win Rate",      val: `${portfolio?.win_rate || 0}%`,      color: "text-ui-green" },
+                                        { label: "Avg Win",       val: fmt(portfolio?.avg_win || 0),        color: "text-ui-green" },
+                                        { label: "Avg Loss",      val: fmt(portfolio?.avg_loss || 0),       color: "text-ui-red" },
+                                        { label: "Best Trade",    val: fmt(portfolio?.best_trade || 0),     color: "text-ui-green" },
+                                        { label: "Worst Trade",   val: fmt(portfolio?.worst_trade || 0),    color: "text-ui-red" },
+                                    ].map((item, i) => (
+                                        <div key={i} className="flex flex-col gap-1 p-4 bg-white/[0.02] rounded-lg border border-[#151f35]">
+                                            <span className="text-[8px] text-[#5a6a82] font-black uppercase tracking-widest">{item.label}</span>
+                                            <span className={cn("text-lg font-black tabular-nums", item.color)}>{item.val}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-20 opacity-30 space-y-3">
+                                    <Activity className="w-10 h-10 text-[#5a6a82]" />
+                                    <span className="text-[10px] font-black uppercase tracking-widest">API Connection Required</span>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
             </main>
 
             {/* ═══ FOOTER ═══ */}
-            <footer className="bg-[#05080f] border-t border-[#151f35] py-3 mt-auto selection:bg-none">
+            <footer className="bg-[#05080f] border-t border-[#151f35] py-3 mt-auto">
                 <div className="max-w-[1800px] mx-auto px-6 flex justify-between items-center text-[9px] font-bold text-[#5a6a82] uppercase tracking-wider">
                     <div className="flex items-center gap-6">
-                        <span className="text-ui-accent flex items-center gap-2">
-                            PLUME ALPHA v2.1
-                        </span>
+                        <span className="text-ui-accent flex items-center gap-2">TRADINGCLAW v3.0</span>
                         <div className="h-3 w-[1px] bg-[#151f35]" />
                         <span className="flex items-center gap-2 italic">
-                            <Shield className="h-3 w-3" /> Kernel-Level Trade Protection Active
+                            <Shield className="h-3 w-3" /> 5-Layer Dedup Active
                         </span>
                     </div>
                     <div className="flex items-center gap-6">
-                        <span className="text-ui-orange">Node: OKX-US-EAST-1</span>
+                        <span className="text-ui-orange">Exchange: Binance USDT-M</span>
                         <div className="h-3 w-[1px] bg-[#151f35]" />
-                        <span className="text-[#c8d6e5]">Mode: Paper Simulation</span>
+                        <span className="text-[#c8d6e5]">Mode: {hasApiControl ? "LIVE" : "DISCONNECTED"}</span>
                         <div className="h-3 w-[1px] bg-[#151f35]" />
-                        <span>Sync Status: <span className={cn(isConnected ? "text-ui-green" : "text-ui-red")}>{isConnected ? "SYNCHRONIZED" : "ERROR"}</span></span>
+                        <span>Sync: <span className={cn(isConnected ? "text-ui-green" : "text-ui-red")}>{isConnected ? "LIVE" : "OFFLINE"}</span></span>
                     </div>
                 </div>
             </footer>

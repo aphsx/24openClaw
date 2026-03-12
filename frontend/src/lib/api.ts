@@ -40,3 +40,18 @@ export const updateConfig = async (key: string, value: number) => {
     const { data } = await api.put(`/config/${key}`, { value });
     return data;
 };
+
+export const fetchPortfolio = async () => {
+    const { data } = await api.get('/portfolio');
+    return data;
+};
+
+export const openTrade = async (pair: Record<string, unknown>) => {
+    const { data } = await api.post('/trade/open', pair);
+    return data;
+};
+
+export const closeTrade = async (groupId: string, reason = 'manual') => {
+    const { data } = await api.post(`/trade/close/${groupId}`, { reason });
+    return data;
+};
